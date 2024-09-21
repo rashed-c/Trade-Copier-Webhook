@@ -2,6 +2,10 @@
 
 This is a simple trading application built with PyQt5 that allows users to send buy, sell, and exit trade orders for futures contracts using a webhook.
 
+
+![image](https://github.com/user-attachments/assets/4da1d766-51fc-4899-aacf-b368b0953111)
+
+
 ## Features
 
 - Select from multiple futures contracts (MNQ, MGC, MES)
