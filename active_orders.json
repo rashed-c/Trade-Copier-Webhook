@@ -1,1 +1,20 @@
-{}
+{
+  "active_orders": {},
+  "tp_levels": {
+    "MNQ": [],
+    "MES": [
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 11.0,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 10.0,
+        "hit": false
+      }
+    ]
+  }
+}
