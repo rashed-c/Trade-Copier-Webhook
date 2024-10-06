@@ -7,9 +7,9 @@ from datetime import datetime, timezone, timedelta
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QComboBox, QLineEdit, QTextEdit, 
                              QMessageBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout, QSpinBox, QSizePolicy,QDoubleSpinBox,
-                             QCheckBox, QTableWidget, QTableWidgetItem, QScrollArea, QMenuBar, QAction, QHeaderView, QAbstractItemView)
+                             QCheckBox, QTableWidget, QTableWidgetItem, QScrollArea, QMenuBar, QAction, QHeaderView, QAbstractItemView, QDateTimeEdit)
 from PyQt5.QtGui import QPainter, QColor, QPen, QIcon, QPixmap
-from PyQt5.QtCore import Qt, QSize, QPoint, QTimer, QThread, pyqtSignal, QMetaObject, pyqtSlot
+from PyQt5.QtCore import Qt, QSize, QPoint, QTimer, QThread, pyqtSignal, QMetaObject, pyqtSlot, QDateTime
 import databento as db
 import pandas as pd 
 import time
@@ -61,12 +61,15 @@ class DatabentoWorker(QThread):
     data_received = pyqtSignal(str, object)
     symbol_mapped = pyqtSignal(str, object)
 
-    def __init__(self, key):
+    def __init__(self, key, is_replay=False, replay_start=None, replay_symbol=None):
         super().__init__()
         self.key = key
         self.subscriptions = {}
         self.is_running = True
         self.client = None
+        self.is_replay = is_replay
+        self.replay_start = replay_start
+        self.replay_symbol = replay_symbol
 
     def add_subscription(self, subscription_id, dataset, schema, symbols, stype_in=None):
         self.subscriptions[subscription_id] = {
@@ -88,6 +91,10 @@ class DatabentoWorker(QThread):
                 }
                 if sub_info['stype_in']:
                     subscribe_params['stype_in'] = sub_info['stype_in']
+                
+                if self.is_replay:
+                    subscribe_params['start'] = self.replay_start
+                    subscribe_params['symbols'] = self.replay_symbol
                 
                 self.client.subscribe(**subscribe_params)
             
@@ -217,6 +224,9 @@ class TradingApp(QMainWindow):
         self.load_settings()
         self.load_active_orders()  # Load active orders before setting up UI
         
+        #Replay mode
+        self.is_replay_mode = False
+        
         self.setup_ui()
         # Connect the new signal
         self.tp_table.tp_changed.connect(self.update_tp_level)
@@ -236,6 +246,7 @@ class TradingApp(QMainWindow):
         # Add these lines at the end of __init__
         self.update_tp_table()
         self.update_layout()
+
 
          # Add this line at the end of __init__
         QTimer.singleShot(0, self.initial_resize)
@@ -383,6 +394,12 @@ class TradingApp(QMainWindow):
         self.always_on_top_action.triggered.connect(self.toggle_always_on_top)
         preference_menu.addAction(self.always_on_top_action)
 
+        # Add 'Replay Mode' action
+        self.replay_mode_action = QAction("Replay Mode", self, checkable=True)
+        self.replay_mode_action.triggered.connect(self.toggle_replay_mode)
+        preference_menu.addAction(self.replay_mode_action)
+
+
         # Add 'Open Settings' action
         open_settings_action = QAction("Open Settings", self)
         open_settings_action.triggered.connect(self.open_settings)
@@ -506,13 +523,35 @@ class TradingApp(QMainWindow):
     def update_tp_level(self, row, column, new_value):
         current_ticker = self.ticker_combo.currentText()
         if current_ticker in self.tp_levels and row < len(self.tp_levels[current_ticker]):
+            tp = self.tp_levels[current_ticker][row]
             if column == 1:  # Quantity
-                self.tp_levels[current_ticker][row]['quantity'] = new_value
+                tp['quantity'] = int(new_value)
             elif column == 2:  # Target
-                self.tp_levels[current_ticker][row]['target'] = new_value
+                tp['target'] = float(new_value)
+                # Recalculate price if in a trade
+                if current_ticker in self.active_orders:
+                    entry_price = self.active_orders[current_ticker]['entry_price']
+                    action = self.active_orders[current_ticker]['action']
+                    if action == 'buy':
+                        tp['price'] = entry_price + tp['target']
+                    else:  # sell
+                        tp['price'] = entry_price - tp['target']
+            
             self.save_active_orders()
             self.update_tp_table()  # Refresh the table display
         print(f"Updated TP level: Ticker={current_ticker}, Row={row}, Column={column}, New Value={new_value}")
+
+    
+    # def update_tp_level(self, row, column, new_value):
+    #     current_ticker = self.ticker_combo.currentText()
+    #     if current_ticker in self.tp_levels and row < len(self.tp_levels[current_ticker]):
+    #         if column == 1:  # Quantity
+    #             self.tp_levels[current_ticker][row]['quantity'] = new_value
+    #         elif column == 2:  # Target
+    #             self.tp_levels[current_ticker][row]['target'] = new_value
+    #         self.save_active_orders()
+    #         self.update_tp_table()  # Refresh the table display
+    #     print(f"Updated TP level: Ticker={current_ticker}, Row={row}, Column={column}, New Value={new_value}")
 
 
 
@@ -575,6 +614,130 @@ class TradingApp(QMainWindow):
 
 
 
+    # def update_tp_table(self):
+    #     self.tp_table.blockSignals(True)
+        
+    #     current_ticker = self.ticker_combo.currentText()
+    #     current_price = float(self.price_input.text())
+        
+    #     if current_ticker in self.tp_levels and self.tp_levels[current_ticker]:
+    #         tp_levels = self.tp_levels[current_ticker]
+    #         self.tp_table.setRowCount(len(tp_levels))
+    #         in_trade = current_ticker in self.active_orders
+    #         entry_price = self.active_orders[current_ticker]['entry_price'] if in_trade else None
+    #         action = self.active_orders[current_ticker]['action'] if in_trade else None
+            
+    #         for row, tp in enumerate(tp_levels):
+    #                            # Enable/Disable checkbox
+    #             checkbox = QCheckBox()
+    #             checkbox.setChecked(tp.get('enabled', True))
+    #             checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
+    #             self.tp_table.setCellWidget(row, 0, checkbox)
+                
+    #             # Quantity
+    #             self.tp_table.setItem(row, 1, QTableWidgetItem(str(tp['quantity'])))
+                
+    #             # Target
+    #             self.tp_table.setItem(row, 2, QTableWidgetItem(str(tp['target'])))
+                
+    #             # Price
+    #             if in_trade:
+    #                 tp_price = entry_price + tp['target'] if action == 'buy' else entry_price - tp['target']
+    #             else:
+    #                 tp_price = current_price + tp['target']
+    #             self.tp_table.setItem(row, 3, QTableWidgetItem(f"{tp_price:.2f}"))
+                
+    #             # Status
+    #             status = "Hit" if tp.get('hit', False) else "Active"
+    #             self.tp_table.setItem(row, 4, QTableWidgetItem(status))
+                
+    #             if tp.get('hit', False):
+    #                 for col in range(5):
+    #                     item = self.tp_table.item(row, col)
+    #                     if item:
+    #                         item.setBackground(QColor(200, 255, 200))
+    #             # (Populate table rows as before)
+    #             pass
+
+    #     else:
+    #         # Add empty rows if there's no data
+    #         empty_row_count = 0  # You can adjust this number as needed
+    #         self.tp_table.setRowCount(empty_row_count)
+            
+    #         # for row in range(empty_row_count):
+    #         #     for col in range(5):  # 5 is the number of columns in your table
+    #         #         # if col == 0:
+    #         #         #     self.tp_table.setItem(row, col, QTableWidgetItem(""))
+    #         #         #     # checkbox = QCheckBox()
+    #         #         #     # checkbox.setEnabled(False)
+    #         #         #     # self.tp_table.setCellWidget(row, col, checkbox)
+    #         #         # else:
+    #         #             self.tp_table.setItem(row, col, QTableWidgetItem(""))
+
+    #     self.tp_table.blockSignals(False)
+        
+    #     # Adjust table size
+    #     self.adjust_table_size()
+    #     #self.tp_table.style_empty_rows()
+        
+    #     print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
+
+    
+    # def update_tp_table(self):
+    #     self.tp_table.blockSignals(True)
+        
+    #     current_ticker = self.ticker_combo.currentText()
+    #     current_price = float(self.price_input.text())
+        
+    #     if current_ticker in self.tp_levels and self.tp_levels[current_ticker]:
+    #         tp_levels = self.tp_levels[current_ticker]
+    #         self.tp_table.setRowCount(len(tp_levels))
+    #         in_trade = current_ticker in self.active_orders
+    #         entry_price = self.active_orders[current_ticker]['entry_price'] if in_trade else None
+    #         action = self.active_orders[current_ticker]['action'] if in_trade else None
+            
+    #         for row, tp in enumerate(tp_levels):
+    #             # Enable/Disable checkbox
+    #             checkbox = QCheckBox()
+    #             checkbox.setChecked(tp.get('enabled', True))
+    #             checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
+    #             self.tp_table.setCellWidget(row, 0, checkbox)
+                
+    #             # Quantity
+    #             self.tp_table.setItem(row, 1, QTableWidgetItem(str(tp['quantity'])))
+                
+    #             # Target
+    #             self.tp_table.setItem(row, 2, QTableWidgetItem(str(tp['target'])))
+                
+    #             # Price
+    #             if in_trade:
+    #                 tp_price = tp['price']  # Use the updated price
+    #             else:
+    #                 tp_price = current_price + tp['target']
+    #             self.tp_table.setItem(row, 3, QTableWidgetItem(f"{tp_price:.2f}"))
+                
+    #             # Status
+    #             status = "Hit" if tp.get('hit', False) else "Active"
+    #             self.tp_table.setItem(row, 4, QTableWidgetItem(status))
+                
+    #             if tp.get('hit', False):
+    #                 for col in range(5):
+    #                     item = self.tp_table.item(row, col)
+    #                     if item:
+    #                         item.setBackground(QColor(200, 255, 200))
+    #     else:
+    #         # Add empty rows if there's no data
+    #         empty_row_count = 0  # You can adjust this number as needed
+    #         self.tp_table.setRowCount(empty_row_count)
+
+    #     self.tp_table.blockSignals(False)
+        
+    #     # Adjust table size
+    #     self.adjust_table_size()
+        
+    #     print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
+
+
     def update_tp_table(self):
         self.tp_table.blockSignals(True)
         
@@ -589,7 +752,7 @@ class TradingApp(QMainWindow):
             action = self.active_orders[current_ticker]['action'] if in_trade else None
             
             for row, tp in enumerate(tp_levels):
-                               # Enable/Disable checkbox
+                # Enable/Disable checkbox
                 checkbox = QCheckBox()
                 checkbox.setChecked(tp.get('enabled', True))
                 checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
@@ -603,7 +766,7 @@ class TradingApp(QMainWindow):
                 
                 # Price
                 if in_trade:
-                    tp_price = entry_price + tp['target'] if action == 'buy' else entry_price - tp['target']
+                    tp_price = tp['price']  # Use the pre-calculated price
                 else:
                     tp_price = current_price + tp['target']
                 self.tp_table.setItem(row, 3, QTableWidgetItem(f"{tp_price:.2f}"))
@@ -617,31 +780,32 @@ class TradingApp(QMainWindow):
                         item = self.tp_table.item(row, col)
                         if item:
                             item.setBackground(QColor(200, 255, 200))
-                # (Populate table rows as before)
-                pass
-
         else:
             # Add empty rows if there's no data
-            empty_row_count = 0  # You can adjust this number as needed
+            empty_row_count = 5  # You can adjust this number as needed
             self.tp_table.setRowCount(empty_row_count)
             
-            # for row in range(empty_row_count):
-            #     for col in range(5):  # 5 is the number of columns in your table
-            #         # if col == 0:
-            #         #     self.tp_table.setItem(row, col, QTableWidgetItem(""))
-            #         #     # checkbox = QCheckBox()
-            #         #     # checkbox.setEnabled(False)
-            #         #     # self.tp_table.setCellWidget(row, col, checkbox)
-            #         # else:
-            #             self.tp_table.setItem(row, col, QTableWidgetItem(""))
+            for row in range(empty_row_count):
+                for col in range(5):  # 5 is the number of columns in your table
+                    if col == 0:
+                        checkbox = QCheckBox()
+                        checkbox.setEnabled(False)
+                        self.tp_table.setCellWidget(row, col, checkbox)
+                    else:
+                        self.tp_table.setItem(row, col, QTableWidgetItem(""))
 
         self.tp_table.blockSignals(False)
         
-        # Adjust table size
-        self.adjust_table_size()
+        # Style empty rows
         #self.tp_table.style_empty_rows()
         
+        # Adjust table size
+        self.adjust_table_size()
+        
         print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
+    
+
+
 
     def add_tp_level(self):
         current_ticker = self.ticker_combo.currentText()
@@ -693,6 +857,57 @@ class TradingApp(QMainWindow):
             self.update_tp_table()
             self.save_active_orders()
             self.adjust_table_size()
+
+    # def add_tp_level(self):
+    #     current_ticker = self.ticker_combo.currentText()
+    #     if current_ticker not in self.tp_levels:
+    #         self.tp_levels[current_ticker] = []
+        
+    #     current_price = float(self.price_input.text())
+        
+    #     # Create a dialog to get TP details from the user
+    #     dialog = QDialog(self)
+    #     dialog.setWindowTitle("Add Take Profit Level")
+    #     layout = QFormLayout(dialog)
+        
+    #     quantity_input = QSpinBox()
+    #     quantity_input.setMinimum(1)
+    #     quantity_input.setValue(1)
+    #     layout.addRow("Quantity:", quantity_input)
+        
+    #     target_input = QDoubleSpinBox()
+    #     target_input.setMinimum(0.01)
+    #     target_input.setMaximum(1000000)
+    #     target_input.setValue(10)
+    #     target_input.setDecimals(2)
+    #     layout.addRow("Target (offset from entry):", target_input)
+        
+    #     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    #     buttons.accepted.connect(dialog.accept)
+    #     buttons.rejected.connect(dialog.reject)
+    #     layout.addRow(buttons)
+        
+    #     if dialog.exec_() == QDialog.Accepted:
+    #         target = target_input.value()
+    #         if current_ticker in self.active_orders:
+    #             entry_price = self.active_orders[current_ticker]['entry_price']
+    #             action = self.active_orders[current_ticker]['action']
+    #             calculated_price = entry_price + target if action == 'buy' else entry_price - target
+    #         else:
+    #             calculated_price = current_price + target
+
+    #         new_tp = {
+    #             'enabled': True,
+    #             'quantity': quantity_input.value(),
+    #             'target': target,
+    #             'price': calculated_price,
+    #             'hit': False
+    #         }
+    #         self.tp_levels[current_ticker].append(new_tp)
+
+    #         self.update_tp_table()
+    #         self.save_active_orders()
+    #         self.adjust_table_size()
  
     def update_tp_enabled(self, row, enabled):
         current_ticker = self.ticker_combo.currentText()
@@ -717,13 +932,14 @@ class TradingApp(QMainWindow):
         if current_ticker in self.active_orders:
             del self.active_orders[current_ticker]
         if current_ticker in self.tp_levels:
-            del self.tp_levels[current_ticker]
+            for tp in self.tp_levels[current_ticker]:
+                tp['hit'] = False
+            #del self.tp_levels[current_ticker]
         self.entry_price = None
         self.update_trade_status()
         self.save_active_orders()
         self.update_tp_table()
-        self.update_response_area("Trade cleared. All TPs removed.\n")
-
+        self.update_response_area("Trade cleared.\n")
 
     def add_or_update_trade(self):
         current_price = float(self.price_input.text())
@@ -745,6 +961,12 @@ class TradingApp(QMainWindow):
             if current_ticker not in self.tp_levels:
                 self.tp_levels[current_ticker] = []
             
+            # Update prices for existing TP levels
+            for tp in self.tp_levels[current_ticker]:
+                if action == 'buy':
+                    tp['price'] = entry_price + tp['target']
+                else:  # sell
+                    tp['price'] = entry_price - tp['target']
             
             self.save_active_orders()
             self.update_trade_status()
@@ -756,6 +978,39 @@ class TradingApp(QMainWindow):
             
             # Check and potentially execute TPs immediately
             self.check_and_update_tp_levels(current_ticker, current_price)
+
+
+    # def add_or_update_trade(self):
+    #     current_price = float(self.price_input.text())
+    #     current_ticker = self.ticker_combo.currentText()
+    #     current_entry_price = self.active_orders.get(current_ticker, {}).get('entry_price')
+    #     dialog = AddTradeDialog(self, current_price, current_entry_price)
+        
+    #     if dialog.exec_():
+    #         entry_price, action = dialog.get_trade_info()
+            
+    #         self.active_orders[current_ticker] = {
+    #             "symbol": current_ticker,
+    #             "action": action,
+    #             "quantity": self.quantity_input.value(),
+    #             "entry_price": entry_price,
+    #             "timestamp": int(time.time())
+    #         }
+            
+    #         if current_ticker not in self.tp_levels:
+    #             self.tp_levels[current_ticker] = []
+            
+            
+    #         self.save_active_orders()
+    #         self.update_trade_status()
+    #         self.update_tp_table()
+    #         self.update_response_area(f"Trade {'updated' if current_entry_price else 'added'}. Entry price: {entry_price}, Action: {action}\n")
+            
+    #         # Force layout update
+    #         QTimer.singleShot(0, self.adjust_table_size)
+            
+    #         # Check and potentially execute TPs immediately
+    #         self.check_and_update_tp_levels(current_ticker, current_price)
 
 
     def force_layout_update(self):
@@ -842,18 +1097,54 @@ class TradingApp(QMainWindow):
         self.update_tp_table()
 
 
+
     def execute_tp_order(self, ticker, tp):
         self.update_response_area(f"TP hit for {ticker}: {tp['quantity']} @ {tp['price']:.2f}\n")
         
-        # Update the active order
         if ticker in self.active_orders:
-            self.active_orders[ticker]['quantity'] -= tp['quantity']
-            if self.active_orders[ticker]['quantity'] <= 0:
-                del self.active_orders[ticker]
-                self.update_response_area(f"Order for {ticker} fully closed and removed from active orders.\n")
+            # Send exit order
+            exit_order = {
+                "ticker": self.ticker_map.get(ticker, ticker),
+                "action": "exit",
+                "orderType": "market",
+                "quantity": tp['quantity'],
+                "price": tp['price']
+            }
+            
+            try:
+                response = requests.post(self.api_url, json=exit_order)
+                response.raise_for_status()
+                
+                response_data = response.json()
+                if response_data.get("success"):
+                    self.update_response_area(f"Exit order sent for TP: {ticker}, Quantity: {tp['quantity']}, Price: {tp['price']:.2f}\n")
+                    
+                    # Update the active order
+                    self.active_orders[ticker]['quantity'] -= tp['quantity']
+                    if self.active_orders[ticker]['quantity'] <= 0:
+                        del self.active_orders[ticker]
+                        self.update_response_area(f"Order for {ticker} fully closed and removed from active orders.\n")
+                else:
+                    self.update_response_area(f"Error sending exit order for TP: {response_data}\n")
+            except requests.RequestException as e:
+                self.update_response_area(f"Error sending exit order for TP: {str(e)}\n")
         
         self.save_active_orders()
         self.update_trade_status()
+
+
+    # def execute_tp_order(self, ticker, tp):
+    #     self.update_response_area(f"TP hit for {ticker}: {tp['quantity']} @ {tp['price']:.2f}\n")
+        
+    #     # Update the active order
+    #     if ticker in self.active_orders:
+    #         self.active_orders[ticker]['quantity'] -= tp['quantity']
+    #         if self.active_orders[ticker]['quantity'] <= 0:
+    #             del self.active_orders[ticker]
+    #             self.update_response_area(f"Order for {ticker} fully closed and removed from active orders.\n")
+        
+    #     self.save_active_orders()
+    #     self.update_trade_status()
 
     def remove_tp_level(self):
         current_ticker = self.ticker_combo.currentText()
@@ -894,29 +1185,118 @@ class TradingApp(QMainWindow):
         self.update_tp_table()
 
 
+    
     def handle_databento_data(self, subscription_id, message):
-        if subscription_id == "main":
-            try:
+        try:
+            if subscription_id == "historical":
+                ticker = self.ticker_combo.currentText()
+                if hasattr(message, 'close'):
+                    price = message.close / 1000000000  # Adjust scale factor if needed
+                else:
+                    print(f"Unexpected message format: {message}")
+                    return
+            else:
                 if hasattr(message, 'instrument_id'):
                     instrument_id = message.instrument_id
                     symbol = self.instrument_id_map.get(instrument_id)
+                    ticker = next((key for key, value in self.symbol_map.items() if value == symbol), None)
+                    if hasattr(message, 'close'):
+                        price = message.close / 1000000000  # Adjust scale factor if needed
+                    else:
+                        print(f"Unexpected message format: {message}")
+                        return
+                else:
+                    print(f"Unexpected message format: {message}")
+                    return
+
+            if ticker:
+                self.current_prices[ticker] = price
+                if ticker == self.ticker_combo.currentText():
+                    self.price_input.setText(f"{price:.2f}")
+                    self.update_tp_table()
                     
-                    scale_factor = 1000000000  # 1 billion
-
-                    if symbol:
-                        ticker = next((key for key, value in self.symbol_map.items() if value == symbol), None)
+                    # Check and execute TPs
+                    if ticker in self.tp_levels:
+                        for tp in self.tp_levels[ticker]:
+                            if tp['enabled'] and not tp['hit']:
+                                if (self.active_orders[ticker]['action'] == 'buy' and price >= tp['price']) or \
+                                (self.active_orders[ticker]['action'] == 'sell' and price <= tp['price']):
+                                    tp['hit'] = True
+                                    self.execute_tp_order(ticker, tp)
+                    
+                    self.update_tp_table()  # Update again after potential TP executions
                         
-                        if ticker and hasattr(message, 'close'):
-                            close_price = message.close / scale_factor
-                            
-                            self.current_prices[ticker] = close_price
+        except Exception as e:
+            print(f"Error processing data: {type(e).__name__}: {str(e)}")
+            print(f"Message: {message}")
 
-                            if ticker == self.ticker_combo.currentText():
-                                self.price_input.setText(f"{close_price:.2f}")
-                                self.update_tp_table()
-                                self.check_and_update_tp_levels(ticker, close_price)
-            except Exception as e:
-                print(f"Error processing data: {type(e).__name__}: {str(e)}")
+
+    # def handle_databento_data(self, subscription_id, message):
+    #     try:
+    #         if subscription_id == "historical":
+    #             ticker = self.ticker_combo.currentText()
+    #             if hasattr(message, 'close'):
+    #                 price = message.close / 1000000000  # Adjust scale factor if needed
+    #             else:
+    #                 print(f"Unexpected message format: {message}")
+    #                 return
+    #         else:
+    #             if hasattr(message, 'instrument_id'):
+    #                 instrument_id = message.instrument_id
+    #                 symbol = self.instrument_id_map.get(instrument_id)
+    #                 ticker = next((key for key, value in self.symbol_map.items() if value == symbol), None)
+    #                 if hasattr(message, 'close'):
+    #                     price = message.close / 1000000000  # Adjust scale factor if needed
+    #                 else:
+    #                     print(f"Unexpected message format: {message}")
+    #                     return
+    #             else:
+    #                 print(f"Unexpected message format: {message}")
+    #                 return
+
+    #         if ticker:
+    #             self.current_prices[ticker] = price
+    #             if ticker == self.ticker_combo.currentText():
+    #                 self.price_input.setText(f"{price:.2f}")
+    #                 self.update_tp_table()
+    #                 self.check_and_update_tp_levels(ticker, price)
+                    
+    #     except Exception as e:
+    #         print(f"Error processing data: {type(e).__name__}: {str(e)}")
+    #         print(f"Message: {message}")
+
+    
+    # def handle_databento_data(self, subscription_id, message):
+    #     try:
+    #         if hasattr(message, 'instrument_id'):
+    #             instrument_id = message.instrument_id
+    #             symbol = self.instrument_id_map.get(instrument_id)
+                
+    #             scale_factor = 1000000000  # 1 billion
+
+    #             if symbol:
+    #                 ticker = next((key for key, value in self.symbol_map.items() if value == symbol), None)
+                    
+    #                 if ticker and hasattr(message, 'price'):
+    #                     price = message.price / scale_factor
+                        
+    #                     self.current_prices[ticker] = price
+
+    #                     if ticker == self.ticker_combo.currentText():
+    #                         self.price_input.setText(f"{price:.2f}")
+    #                         self.update_tp_table()
+    #                         self.check_and_update_tp_levels(ticker, price)
+    #         elif subscription_id == "historical":
+    #             # Handle historical data
+    #             ticker = self.ticker_combo.currentText()
+    #             price = message.price / 1000000000  # Adjust scale factor if needed
+    #             self.current_prices[ticker] = price
+    #             self.price_input.setText(f"{price:.2f}")
+    #             self.update_tp_table()
+    #             self.check_and_update_tp_levels(ticker, price)
+                
+    #     except Exception as e:
+    #         print(f"Error processing data: {type(e).__name__}: {str(e)}")
 
 
     def load_settings(self):
@@ -1044,6 +1424,38 @@ class TradingApp(QMainWindow):
             self.response_area.verticalScrollBar().maximum()
         )
 
+    # def initialize_databento_worker(self):
+    #     if self.databento_worker:
+    #         self.stop_databento_worker()
+
+    #     try:
+    #         current_ticker = self.ticker_combo.currentText()
+    #         symbol = self.symbol_map.get(current_ticker)
+            
+    #         if not symbol:
+    #             raise ValueError(f"No symbol mapping found for ticker: {current_ticker}")
+
+    #         self.databento_worker = DatabentoWorker(key=self.databento_key)
+    #         self.databento_worker.add_subscription(
+    #             subscription_id="main",
+    #             dataset="GLBX.MDP3",
+    #             schema="ohlcv-1s",
+    #             stype_in="continuous",
+    #             symbols=[symbol]
+    #         )
+            
+    #         self.databento_worker.data_received.connect(self.handle_databento_data)
+    #         self.databento_worker.symbol_mapped.connect(self.handle_symbol_mapping)
+    #         self.databento_worker.start()
+            
+    #         self.is_databento_initialized = True
+    #         self.update_response_area(f"Databento worker initialized for {current_ticker}. Starting to receive price updates.\n")
+    #     except Exception as e:
+    #         self.update_response_area(f"Error initializing Databento worker: {str(e)}\n")
+    #         self.databento_worker = None
+    #         self.is_databento_initialized = False
+
+
     def initialize_databento_worker(self):
         if self.databento_worker:
             self.stop_databento_worker()
@@ -1055,7 +1467,7 @@ class TradingApp(QMainWindow):
             if not symbol:
                 raise ValueError(f"No symbol mapping found for ticker: {current_ticker}")
 
-            self.databento_worker = DatabentoWorker(key=self.databento_key)
+            self.databento_worker = DatabentoWorker(key=self.databento_key, is_replay=False)
             self.databento_worker.add_subscription(
                 subscription_id="main",
                 dataset="GLBX.MDP3",
@@ -1075,6 +1487,84 @@ class TradingApp(QMainWindow):
             self.databento_worker = None
             self.is_databento_initialized = False
 
+
+    def initialize_historical_data(self, start_datetime, end_datetime):
+        try:
+            current_ticker = self.ticker_combo.currentText()
+            symbol = self.symbol_map.get(current_ticker)
+            
+            if not symbol:
+                raise ValueError(f"No symbol mapping found for ticker: {current_ticker}")
+
+            client = db.Historical(self.databento_key)
+            
+            data = client.timeseries.get_range(
+                dataset="GLBX.MDP3",
+                symbols=[symbol],
+                schema="ohlcv-1s",
+                stype_in="continuous",
+                start=start_datetime,
+                end=end_datetime,
+                limit=100  # Adjust this value as needed
+            )
+            
+            self.historical_data = list(data)  # Convert iterator to list
+            self.historical_data_index = 0
+            self.update_response_area(f"Historical data loaded for {current_ticker} from {start_datetime} to {end_datetime}. {len(self.historical_data)} records loaded.\n")
+            
+            # Start the historical data playback
+            self.start_historical_playback()
+        except Exception as e:
+            self.update_response_area(f"Error loading historical data: {str(e)}\n")
+
+    # def initialize_historical_data(self, start_datetime, end_datetime):
+    #     try:
+    #         current_ticker = self.ticker_combo.currentText()
+    #         symbol = self.symbol_map.get(current_ticker)
+            
+    #         if not symbol:
+    #             raise ValueError(f"No symbol mapping found for ticker: {current_ticker}")
+
+    #         client = db.Historical(self.databento_key)
+            
+    #         data = client.timeseries.get_range(
+    #             dataset="GLBX.MDP3",
+    #             symbols=[symbol],
+    #             schema="ohlcv-1s",
+    #             stype_in="continuous",
+    #             start=start_datetime,
+    #             end=end_datetime,
+    #             limit=100  # Adjust this value as needed
+    #         )
+            
+    #         self.process_historical_data(data)
+    #         self.update_response_area(f"Historical data loaded for {current_ticker} from {start_datetime} to {end_datetime}.\n")
+    #     except Exception as e:
+    #         self.update_response_area(f"Error loading historical data: {str(e)}\n")
+
+    def process_historical_data(self, data):
+        for record in data:
+            # Process each record similar to how you handle live data
+            self.handle_databento_data("historical", record)
+        
+        self.update_response_area("Finished processing historical data.\n")
+    
+    def start_historical_playback(self):
+        self.historical_timer = QTimer(self)
+        self.historical_timer.timeout.connect(self.play_next_historical_data)
+        self.historical_timer.start(1000)  # Update every 1000 ms (1 second)
+
+    def play_next_historical_data(self):
+        while self.historical_data_index < len(self.historical_data):
+            record = self.historical_data[self.historical_data_index]
+            self.historical_data_index += 1
+            
+            if not isinstance(record, db.SystemMsg):
+                self.handle_databento_data("historical", record)
+                break
+        else:
+            self.historical_timer.stop()
+            self.update_response_area("Historical data playback completed.\n")
 
 
     def handle_symbol_mapping(self, subscription_id, message):
@@ -1105,7 +1595,10 @@ class TradingApp(QMainWindow):
     def closeEvent(self, event):
         self.save_active_orders()
         self.stop_databento_worker()
+        if hasattr(self, 'historical_timer'):
+            self.historical_timer.stop()
         event.accept()
+
 
     def update_all_tp_amounts(self):
         current_ticker = self.ticker_combo.currentText()
@@ -1132,17 +1625,53 @@ class TradingApp(QMainWindow):
 
  
 
-    def execute_tp_order(self, ticker, tp):
-        self.update_response_area(f"TP hit for {ticker}: {tp['quantity']} @ {tp['price']:.2f}\n")
+    # def execute_tp_order(self, ticker, tp):
+    #     self.update_response_area(f"TP hit for {ticker}: {tp['quantity']} @ {tp['price']:.2f}\n")
         
-        if ticker in self.active_orders:
-            self.active_orders[ticker]['quantity'] -= tp['quantity']
-            if self.active_orders[ticker]['quantity'] <= 0:
-                del self.active_orders[ticker]
-                self.update_response_area(f"Order for {ticker} fully closed and removed from active orders.\n")
+    #     if ticker in self.active_orders:
+    #         self.active_orders[ticker]['quantity'] -= tp['quantity']
+    #         if self.active_orders[ticker]['quantity'] <= 0:
+    #             del self.active_orders[ticker]
+    #             self.update_response_area(f"Order for {ticker} fully closed and removed from active orders.\n")
         
-        self.save_active_orders()
-        self.update_trade_status()
+    #     self.save_active_orders()
+    #     self.update_trade_status()  
+
+    def toggle_replay_mode(self, checked):
+        self.is_replay_mode = checked
+        if checked:
+            self.update_response_area("Historical data mode activated. Please configure settings.\n")
+            self.configure_replay_settings()
+        else:
+            self.update_response_area("Historical data mode deactivated. Switching to live data.\n")
+            if hasattr(self, 'historical_timer'):
+                self.historical_timer.stop()
+            if self.is_databento_initialized:
+                self.initialize_databento_worker()
+ 
+    def configure_replay_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Historical Data Settings")
+        layout = QFormLayout(dialog)
+
+        start_date = QDateTimeEdit(QDateTime.currentDateTime().addDays(-1))
+        start_date.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        layout.addRow("Start Date:", start_date)
+
+        end_date = QDateTimeEdit(QDateTime.currentDateTime())
+        end_date.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        layout.addRow("End Date:", end_date)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec_() == QDialog.Accepted:
+            start_datetime = start_date.dateTime().toString("yyyy-MM-ddTHH:mm:ss")
+            end_datetime = end_date.dateTime().toString("yyyy-MM-ddTHH:mm:ss")
+            self.initialize_historical_data(start_datetime, end_datetime)
+
 
 
 if __name__ == '__main__':

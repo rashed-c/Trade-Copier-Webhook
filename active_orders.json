@@ -1,4 +1,28 @@
 {
   "active_orders": {},
-  "tp_levels": {}
+  "tp_levels": {
+    "MES": [
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 1.0,
+        "price": 5761.0,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 2.0,
+        "price": 5762.0,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 3.0,
+        "price": 5763.0,
+        "hit": false
+      }
+    ]
+  }
 }
