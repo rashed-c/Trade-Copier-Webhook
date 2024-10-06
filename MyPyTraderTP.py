@@ -135,13 +135,17 @@ class TPTableWidget(QTableWidget):
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.verticalHeader().setVisible(False)
         self.cellChanged.connect(self.on_cell_changed)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumHeight(100)
-        self.verticalHeader().sectionResizeMode(QHeaderView.Fixed)
-        self.verticalHeader().setDefaultSectionSize(30)  # Set default row height
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)  # Select entire rows
-        self.setSelectionMode(QAbstractItemView.SingleSelection)  # Allow only single row selection
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.verticalHeader().setDefaultSectionSize(20)  # Set default row height
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.trading_app.adjust_table_size()
 
     def on_cell_changed(self, row, column):
         if column in [1, 2]:  # Quantity or Target column
@@ -153,23 +157,32 @@ class TPTableWidget(QTableWidget):
             except ValueError:
                 pass  # Ignore invalid input
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.updateGeometry()
-
     def sizeHint(self):
-        width = self.viewport().width()
-        height = self.verticalHeader().length() + self.horizontalHeader().height()
+        width = self.horizontalHeader().length() + self.verticalHeader().width() + 20  # Add some padding
+        height = self.verticalHeader().length() + self.horizontalHeader().height() + 10
         return QSize(width, height)
+    
+    def style_empty_rows(self):
+        for row in range(self.rowCount()):
+            for col in range(self.columnCount()):
+                item = self.item(row, col)
+                if item is None or item.text() == "":
+                    new_item = QTableWidgetItem("")
+                    new_item.setBackground(QColor(240, 240, 240))  # Light gray background
+                    self.setItem(row, col, new_item)
+    
+    
+
 
 class TradingApp(QMainWindow):
     def __init__(self):
         super().__init__()
         
         self.setWindowTitle("Trading App")
-        self.setGeometry(100, 100, 800, 600)
-        
+        self.setFixedWidth(450)  # Set a fixed width
+        self.setMinimumHeight(400)  # Set a minimum
+
+
         self.orders_file = 'active_orders.json'
         self.active_orders = {}
         self.tp_levels = {}
@@ -212,7 +225,7 @@ class TradingApp(QMainWindow):
         self.setup_menu_bar()
 
         self.update_checkbox.setChecked(True)
-        self.always_on_top_checkbox.setChecked(True)
+        #self.always_on_top_checkbox.setChecked(True)
         
         if self.update_checkbox.isChecked():
             self.initialize_databento_worker()
@@ -227,139 +240,137 @@ class TradingApp(QMainWindow):
          # Add this line at the end of __init__
         QTimer.singleShot(0, self.initial_resize)
 
-
     def setup_ui(self):
-            central_widget = QWidget()
-            self.setCentralWidget(central_widget)
-            main_layout = QVBoxLayout(central_widget)
-            
-            input_layout = QGridLayout()
-            input_layout.addWidget(QLabel("Ticker:"), 0, 0)
-            self.ticker_combo = QComboBox()
-            self.ticker_combo.addItems(self.symbol_map.keys())
-            self.ticker_combo.currentTextChanged.connect(self.on_ticker_changed)
-            input_layout.addWidget(self.ticker_combo, 0, 1)
-            
-            input_layout.addWidget(QLabel("Price:"), 1, 0)
-            self.price_input = QLineEdit("0")
-            self.price_input.setReadOnly(True)
-            input_layout.addWidget(self.price_input, 1, 1)
-            
-            input_layout.addWidget(QLabel("Quantity:"), 2, 0)
-            self.quantity_input = QSpinBox()
-            self.quantity_input.setMinimum(1)
-            self.quantity_input.setValue(5)
-            input_layout.addWidget(self.quantity_input, 2, 1)
-            
-            main_layout.addLayout(input_layout)
-            
-            databento_layout = QHBoxLayout()
-            self.update_checkbox = QCheckBox("Enable price updates")
-            self.update_checkbox.stateChanged.connect(self.toggle_price_updates)
-            databento_layout.addWidget(self.update_checkbox)
-            
-            main_layout.addLayout(databento_layout)
-            
-            stop_loss_layout = QGridLayout()
-            stop_loss_layout.addWidget(QLabel("Stop Loss:"), 0, 0)
-            self.stop_loss_input = QLineEdit("0")
-            stop_loss_layout.addWidget(self.stop_loss_input, 0, 1)
-            
-            stop_loss_layout.addWidget(QLabel("StopLoss Type:"), 1, 0)
-            self.stop_loss_type_combo = QComboBox()
-            self.stop_loss_type_combo.addItems(["Market", "Limit", "Trailing"])
-            self.stop_loss_type_combo.setCurrentText("Trailing")
-            stop_loss_layout.addWidget(self.stop_loss_type_combo, 1, 1)
-            
-            main_layout.addLayout(stop_loss_layout)
-            
-            button_layout = QGridLayout()
-            self.buy_button = QPushButton("BUY")
-            self.buy_button.setStyleSheet("background-color: #007bff; color: black;")
-            self.buy_button.clicked.connect(lambda: self.send_order("buy"))
-            button_layout.addWidget(self.buy_button, 0, 0)
-            
-            self.sell_button = QPushButton("SELL")
-            self.sell_button.setStyleSheet("background-color: #dc3545; color: black;")
-            self.sell_button.clicked.connect(lambda: self.send_order("sell"))
-            button_layout.addWidget(self.sell_button, 0, 1)
-            
-            self.exit_button = QPushButton("EXIT")
-            self.exit_button.setStyleSheet("background-color: #ffc107; color: black;")
-            self.exit_button.clicked.connect(lambda: self.send_order("exit"))
-            button_layout.addWidget(self.exit_button, 1, 0, 1, 2)
-            
-            main_layout.addLayout(button_layout)
-            
-            for i in range(input_layout.rowCount()):
-                input_layout.itemAtPosition(i, 0).widget().setFixedWidth(80)
-            for i in range(stop_loss_layout.rowCount()):
-                stop_loss_layout.itemAtPosition(i, 0).widget().setFixedWidth(80)
-            
-            self.always_on_top_checkbox = QCheckBox("Always on Top")
-            self.always_on_top_checkbox.stateChanged.connect(self.toggle_always_on_top)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(10, 10, 10, 10)  # Add some padding
         
-            # Add Trade Management Buttons
-            trade_management_layout = QHBoxLayout()
-            self.clear_trade_button = QPushButton("Clear Trade")
-            self.clear_trade_button.clicked.connect(self.clear_trade)
-            trade_management_layout.addWidget(self.clear_trade_button)
-            
-            self.add_trade_button = QPushButton("Add/Update Trade")
-            self.add_trade_button.clicked.connect(self.add_or_update_trade)
-            trade_management_layout.addWidget(self.add_trade_button)
-            
-            main_layout.addLayout(trade_management_layout)
+        input_layout = QGridLayout()
+        input_layout.addWidget(QLabel("Ticker:"), 0, 0)
+        self.ticker_combo = QComboBox()
+        self.ticker_combo.addItems(self.symbol_map.keys())
+        self.ticker_combo.currentTextChanged.connect(self.on_ticker_changed)
+        input_layout.addWidget(self.ticker_combo, 0, 1)
+        
+        input_layout.addWidget(QLabel("Price:"), 1, 0)
+        self.price_input = QLineEdit("0")
+        self.price_input.setReadOnly(True)
+        input_layout.addWidget(self.price_input, 1, 1)
+        
+        input_layout.addWidget(QLabel("Quantity:"), 2, 0)
+        self.quantity_input = QSpinBox()
+        self.quantity_input.setMinimum(1)
+        self.quantity_input.setValue(5)
+        input_layout.addWidget(self.quantity_input, 2, 1)
+        
+        main_layout.addLayout(input_layout)
+        
+        databento_layout = QHBoxLayout()
+        self.update_checkbox = QCheckBox("Enable price updates")
+        self.update_checkbox.stateChanged.connect(self.toggle_price_updates)
+        databento_layout.addWidget(self.update_checkbox)
+        
+        main_layout.addLayout(databento_layout)
+        
+        stop_loss_layout = QGridLayout()
+        stop_loss_layout.addWidget(QLabel("Stop Loss:"), 0, 0)
+        self.stop_loss_input = QLineEdit("0")
+        stop_loss_layout.addWidget(self.stop_loss_input, 0, 1)
+        
+        stop_loss_layout.addWidget(QLabel("StopLoss Type:"), 1, 0)
+        self.stop_loss_type_combo = QComboBox()
+        self.stop_loss_type_combo.addItems(["Market", "Limit", "Trailing"])
+        self.stop_loss_type_combo.setCurrentText("Trailing")
+        stop_loss_layout.addWidget(self.stop_loss_type_combo, 1, 1)
+        
+        main_layout.addLayout(stop_loss_layout)
+        
+        button_layout = QGridLayout()
+        self.buy_button = QPushButton("BUY")
+        self.buy_button.setStyleSheet("background-color: #007bff; color: black;")
+        self.buy_button.clicked.connect(lambda: self.send_order("buy"))
+        button_layout.addWidget(self.buy_button, 0, 0)
+        
+        self.sell_button = QPushButton("SELL")
+        self.sell_button.setStyleSheet("background-color: #dc3545; color: black;")
+        self.sell_button.clicked.connect(lambda: self.send_order("sell"))
+        button_layout.addWidget(self.sell_button, 0, 1)
+        
+        self.exit_button = QPushButton("EXIT")
+        self.exit_button.setStyleSheet("background-color: #ffc107; color: black;")
+        self.exit_button.clicked.connect(lambda: self.send_order("exit"))
+        button_layout.addWidget(self.exit_button, 1, 0, 1, 2)
+        
+        main_layout.addLayout(button_layout)
+        
+        for i in range(input_layout.rowCount()):
+            input_layout.itemAtPosition(i, 0).widget().setFixedWidth(80)
+        for i in range(stop_loss_layout.rowCount()):
+            stop_loss_layout.itemAtPosition(i, 0).widget().setFixedWidth(80)
+   
+        # Add Trade Management Buttons
+        trade_management_layout = QHBoxLayout()
+        self.clear_trade_button = QPushButton("Clear Trade")
+        self.clear_trade_button.clicked.connect(self.clear_trade)
+        trade_management_layout.addWidget(self.clear_trade_button)
+        
+        self.add_trade_button = QPushButton("Add/Update Trade")
+        self.add_trade_button.clicked.connect(self.add_or_update_trade)
+        trade_management_layout.addWidget(self.add_trade_button)
+        
+        main_layout.addLayout(trade_management_layout)
 
-            # # TP Table
-            # self.tp_table = TPTableWidget()
-            # main_layout.addWidget(self.tp_table)
+        # TP Table
+        self.tp_table = TPTableWidget(self)
+        self.tp_table_container = QWidget()
+        self.tp_table_container.setLayout(QVBoxLayout())
+        self.tp_table_container.layout().setContentsMargins(0, 0, 0, 0)
+        self.tp_table_container.layout().addWidget(self.tp_table)
+        self.tp_table_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        main_layout.addWidget(self.tp_table_container)
 
-            # TP Table and buttons
-            self.tp_table = TPTableWidget(self)
-            self.tp_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            self.tp_scroll_area = QScrollArea()
-            self.tp_scroll_area.setWidget(self.tp_table)
-            self.tp_scroll_area.setWidgetResizable(True)
-            self.tp_scroll_area.setMinimumHeight(150)  # Set a minimum height
-            main_layout.addWidget(self.tp_scroll_area, 1)  # Give it a stretch factor of 1
+        # Add buttons for TP management
+        tp_button_layout = QHBoxLayout()
+        self.add_tp_button = QPushButton("Add TP")
+        self.add_tp_button.clicked.connect(self.add_tp_level)
+        self.remove_tp_button = QPushButton("Remove TP")
+        self.remove_tp_button.clicked.connect(self.remove_tp_level)
+        tp_button_layout.addWidget(self.add_tp_button)
+        tp_button_layout.addWidget(self.remove_tp_button)
+        main_layout.addLayout(tp_button_layout)
+        
+        # Trade status label
+        status_layout = QHBoxLayout()
+        self.trade_status_label = QLabel("Status: Not in trade")
+        status_layout.addWidget(self.trade_status_label)
+        status_layout.addStretch()
+        
+        main_layout.addLayout(status_layout)
 
-            tp_button_layout = QHBoxLayout()
-            self.add_tp_button = QPushButton("Add TP")
-            self.add_tp_button.clicked.connect(self.add_tp_level)
-            self.remove_tp_button = QPushButton("Remove TP")
-            self.remove_tp_button.clicked.connect(self.remove_tp_level)
-            tp_button_layout.addWidget(self.add_tp_button)
-            tp_button_layout.addWidget(self.remove_tp_button)
-            main_layout.addLayout(tp_button_layout)
-            
-            # Trade status label
-            status_layout = QHBoxLayout()
-            self.trade_status_label = QLabel("Status: Not in trade")
-            status_layout.addWidget(self.trade_status_label)
-            status_layout.addStretch()
-            
-            main_layout.addLayout(status_layout)
+        # Response area
+        self.response_area = QTextEdit()
+        self.response_area.setReadOnly(True)
+        main_layout.addWidget(self.response_area)
 
-            # Response area
-            self.response_area = QTextEdit()
-            self.response_area.setReadOnly(True)
-            main_layout.addWidget(self.response_area)
-
-            # Set size policy for the central widget to be expanding
-            central_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-
-            # Connect the resizeEvent to update the table
-            #self.resizeEvent = self.on_resize
-
-    # def on_resize(self, event):
-    #     QMainWindow.resizeEvent(self, event)
-    #     self.tp_table.resize_to_contents()
+        # Set size policy for the central widget to be expanding
+        central_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def initial_resize(self):
         self.update_tp_table()
-        self.adjustSize()
+    
+
+    def on_checkbox_changed(self, row, state):
+        current_ticker = self.ticker_combo.currentText()
+        if current_ticker in self.tp_levels and row < len(self.tp_levels[current_ticker]):
+            self.tp_levels[current_ticker][row]['enabled'] = state == Qt.Checked
+            self.save_active_orders()
+            print(f"TP level {row} for {current_ticker} {'enabled' if state == Qt.Checked else 'disabled'}")
+
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.adjust_table_size)
 
     def setup_menu_bar(self):
         menu_bar = self.menuBar()
@@ -419,24 +430,7 @@ class TradingApp(QMainWindow):
         with open(self.orders_file, 'w') as f:
             json.dump(data_to_save, f, indent=2)
 
-    # def load_active_orders(self):
-    #     if os.path.exists(self.orders_file):
-    #         try:
-    #             with open(self.orders_file, 'r') as f:
-    #                 data = json.load(f)
-    #                 self.active_orders = data.get('active_orders', {})
-    #                 self.tp_levels = data.get('tp_levels', {})
-                
-    #             # Restart monitoring for all loaded orders
-    #             for ticker in self.active_orders:
-    #                 self.monitor_tp_levels(ticker)
-    #         except json.JSONDecodeError:
-    #             self.update_response_area(f"Error loading {self.orders_file}. Starting with empty orders and TP levels.\n")
-    #             self.active_orders = {}
-    #             self.tp_levels = {}
-    #     else:
-    #         self.active_orders = {}
-    #         self.tp_levels = {}
+
 
     def load_active_orders(self):
         if os.path.exists(self.orders_file):
@@ -522,21 +516,80 @@ class TradingApp(QMainWindow):
 
 
 
+    # def update_tp_table(self):
+    #     self.tp_table.blockSignals(True)
+        
+    #     current_ticker = self.ticker_combo.currentText()
+    #     current_price = float(self.price_input.text())
+        
+    #     if current_ticker in self.tp_levels:
+    #         tp_levels = self.tp_levels[current_ticker]
+    #         self.tp_table.setRowCount(len(tp_levels))
+            
+    #         in_trade = current_ticker in self.active_orders
+    #         entry_price = self.active_orders[current_ticker]['entry_price'] if in_trade else None
+    #         action = self.active_orders[current_ticker]['action'] if in_trade else None
+            
+    #         for row, tp in enumerate(tp_levels):
+    #                            # Enable/Disable checkbox
+    #             checkbox = QCheckBox()
+    #             checkbox.setChecked(tp.get('enabled', True))
+    #             checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
+    #             self.tp_table.setCellWidget(row, 0, checkbox)
+                
+    #             # Quantity
+    #             self.tp_table.setItem(row, 1, QTableWidgetItem(str(tp['quantity'])))
+                
+    #             # Target
+    #             self.tp_table.setItem(row, 2, QTableWidgetItem(str(tp['target'])))
+                
+    #             # Price
+    #             if in_trade:
+    #                 tp_price = entry_price + tp['target'] if action == 'buy' else entry_price - tp['target']
+    #             else:
+    #                 tp_price = current_price + tp['target']
+    #             self.tp_table.setItem(row, 3, QTableWidgetItem(f"{tp_price:.2f}"))
+                
+    #             # Status
+    #             status = "Hit" if tp.get('hit', False) else "Active"
+    #             self.tp_table.setItem(row, 4, QTableWidgetItem(status))
+                
+    #             if tp.get('hit', False):
+    #                 for col in range(5):
+    #                     item = self.tp_table.item(row, col)
+    #                     if item:
+    #                         item.setBackground(QColor(200, 255, 200))
+    #             # (Populate table rows as before)
+    #             pass
+    #     else:
+    #         self.tp_table.setRowCount(0)
+
+            
+    #     self.tp_table.blockSignals(False)
+
+
+    #     self.tp_table.style_empty_rows()
+    #     self.adjust_table_size()
+        
+    #     print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
+
+
+
     def update_tp_table(self):
         self.tp_table.blockSignals(True)
         
         current_ticker = self.ticker_combo.currentText()
         current_price = float(self.price_input.text())
         
-        if current_ticker in self.tp_levels:
+        if current_ticker in self.tp_levels and self.tp_levels[current_ticker]:
             tp_levels = self.tp_levels[current_ticker]
             self.tp_table.setRowCount(len(tp_levels))
-            
             in_trade = current_ticker in self.active_orders
             entry_price = self.active_orders[current_ticker]['entry_price'] if in_trade else None
             action = self.active_orders[current_ticker]['action'] if in_trade else None
             
             for row, tp in enumerate(tp_levels):
+                               # Enable/Disable checkbox
                 checkbox = QCheckBox()
                 checkbox.setChecked(tp.get('enabled', True))
                 checkbox.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
@@ -553,7 +606,6 @@ class TradingApp(QMainWindow):
                     tp_price = entry_price + tp['target'] if action == 'buy' else entry_price - tp['target']
                 else:
                     tp_price = current_price + tp['target']
-                
                 self.tp_table.setItem(row, 3, QTableWidgetItem(f"{tp_price:.2f}"))
                 
                 # Status
@@ -565,25 +617,31 @@ class TradingApp(QMainWindow):
                         item = self.tp_table.item(row, col)
                         if item:
                             item.setBackground(QColor(200, 255, 200))
+                # (Populate table rows as before)
+                pass
+
         else:
-            self.tp_table.setRowCount(0)
-        
+            # Add empty rows if there's no data
+            empty_row_count = 0  # You can adjust this number as needed
+            self.tp_table.setRowCount(empty_row_count)
+            
+            # for row in range(empty_row_count):
+            #     for col in range(5):  # 5 is the number of columns in your table
+            #         # if col == 0:
+            #         #     self.tp_table.setItem(row, col, QTableWidgetItem(""))
+            #         #     # checkbox = QCheckBox()
+            #         #     # checkbox.setEnabled(False)
+            #         #     # self.tp_table.setCellWidget(row, col, checkbox)
+            #         # else:
+            #             self.tp_table.setItem(row, col, QTableWidgetItem(""))
+
         self.tp_table.blockSignals(False)
-        self.tp_table.updateGeometry()
-        self.adjust_table_height()
+        
+        # Adjust table size
+        self.adjust_table_size()
+        #self.tp_table.style_empty_rows()
+        
         print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
-
-
-    def adjust_table_height(self):
-        row_count = self.tp_table.rowCount()
-        header_height = self.tp_table.horizontalHeader().height()
-        row_height = self.tp_table.verticalHeader().defaultSectionSize()
-        total_height = header_height + (row_count * row_height)
-        max_height = 300  # Maximum height before scrolling
-        new_height = min(total_height, max_height)
-        self.tp_scroll_area.setMinimumHeight(new_height)
-        self.tp_scroll_area.updateGeometry()
-
 
     def add_tp_level(self):
         current_ticker = self.ticker_combo.currentText()
@@ -615,27 +673,33 @@ class TradingApp(QMainWindow):
         layout.addRow(buttons)
         
         if dialog.exec_() == QDialog.Accepted:
+            target = target_input.value()
+            if current_ticker in self.active_orders:
+                entry_price = self.active_orders[current_ticker]['entry_price']
+                action = self.active_orders[current_ticker]['action']
+                calculated_price = entry_price + target if action == 'buy' else entry_price - target
+            else:
+                calculated_price = current_price + target
+
             new_tp = {
                 'enabled': True,
                 'quantity': quantity_input.value(),
-                'target': target_input.value(),
-                'price':current_price+target_input.value(),
+                'target': target,
+                'price': calculated_price,
                 'hit': False
             }
             self.tp_levels[current_ticker].append(new_tp)
+
             self.update_tp_table()
-            self.adjust_table_height()
             self.save_active_orders()
-
-
-
+            self.adjust_table_size()
+ 
     def update_tp_enabled(self, row, enabled):
         current_ticker = self.ticker_combo.currentText()
         if current_ticker in self.tp_levels and row < len(self.tp_levels[current_ticker]):
             self.tp_levels[current_ticker][row]['enabled'] = enabled
             self.save_active_orders()
             print(f"Updated TP enabled status: Ticker={current_ticker}, Row={row}, Enabled={enabled}")
-
 
     def on_ticker_changed(self, ticker):
         price = self.current_prices.get(ticker, 0)
@@ -660,11 +724,13 @@ class TradingApp(QMainWindow):
         self.update_tp_table()
         self.update_response_area("Trade cleared. All TPs removed.\n")
 
+
     def add_or_update_trade(self):
         current_price = float(self.price_input.text())
         current_ticker = self.ticker_combo.currentText()
         current_entry_price = self.active_orders.get(current_ticker, {}).get('entry_price')
         dialog = AddTradeDialog(self, current_price, current_entry_price)
+        
         if dialog.exec_():
             entry_price, action = dialog.get_trade_info()
             
@@ -679,13 +745,83 @@ class TradingApp(QMainWindow):
             if current_ticker not in self.tp_levels:
                 self.tp_levels[current_ticker] = []
             
+            
             self.save_active_orders()
             self.update_trade_status()
             self.update_tp_table()
             self.update_response_area(f"Trade {'updated' if current_entry_price else 'added'}. Entry price: {entry_price}, Action: {action}\n")
             
+            # Force layout update
+            QTimer.singleShot(0, self.adjust_table_size)
+            
             # Check and potentially execute TPs immediately
             self.check_and_update_tp_levels(current_ticker, current_price)
+
+
+    def force_layout_update(self):
+        # Force the layout to update
+        self.tp_table_container.updateGeometry()
+        self.centralWidget().updateGeometry()
+        
+        # Use a QTimer to defer the final adjustment
+        QTimer.singleShot(0, self.final_layout_adjustment)
+
+    def final_layout_adjustment(self):
+        # Adjust the table height
+        self.adjust_table_height()
+        
+        # Force the main window to adjust its size if needed
+
+    def adjust_table_height(self):
+        if self.is_adjusting:
+            return
+        
+        self.is_adjusting = True
+        
+        row_count = self.tp_table.rowCount()
+        header_height = self.tp_table.horizontalHeader().height()
+        row_height = self.tp_table.verticalHeader().defaultSectionSize()
+        total_height = header_height + (row_count * row_height)
+        max_height = 300  # Maximum height before scrolling
+        new_height = min(total_height + 2, max_height)  # +2 for borders
+        
+        self.tp_table_container.setFixedHeight(new_height)
+        
+        # Ensure the table width matches the container width
+        self.tp_table.setFixedWidth(self.tp_table_container.width())
+        
+        self.is_adjusting = False
+
+
+    def adjust_table_size(self):
+        # Adjust width to match container width
+        available_width = self.tp_table_container.width()
+        self.tp_table.setFixedWidth(available_width)
+        
+        # Adjust height
+        if self.tp_table.rowCount() < 5:
+            row_count = 5
+        else:
+            row_count = self.tp_table.rowCount()
+
+        header_height = self.tp_table.horizontalHeader().height()
+        row_height = self.tp_table.verticalHeader().defaultSectionSize()
+        total_height = header_height + (row_count * row_height)
+        
+        # Set the table height to fit all rows without scrolling
+        self.tp_table_container.setFixedHeight(total_height)
+        
+        # Resize columns to fit content
+        self.tp_table.resizeColumnsToContents()
+        
+        # Stretch columns to fill available width
+        header = self.tp_table.horizontalHeader()
+        for i in range(self.tp_table.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.Stretch)
+        
+        # Force immediate update
+        self.tp_table.updateGeometry()
+        self.tp_table_container.updateGeometry()
 
     def check_and_execute_tps_on_startup(self):
         for ticker, order in self.active_orders.items():
@@ -696,22 +832,17 @@ class TradingApp(QMainWindow):
         if ticker not in self.active_orders or ticker not in self.tp_levels:
             return
 
-        order = self.active_orders[ticker]
-        action = order['action']
-        entry_price = order['entry_price']
-
         for tp in self.tp_levels[ticker]:
             if tp['enabled'] and not tp['hit']:
-                if (action == 'buy' and current_price >= tp['price']) or \
-                    (action == 'sell' and current_price <= tp['price']):
+                if (self.active_orders[ticker]['action'] == 'buy' and current_price >= tp['price']) or \
+                (self.active_orders[ticker]['action'] == 'sell' and current_price <= tp['price']):
                     tp['hit'] = True
                     self.execute_tp_order(ticker, tp)
         
         self.update_tp_table()
 
+
     def execute_tp_order(self, ticker, tp):
-        # Implement the logic to execute the TP order
-        # This could involve sending an order to your trading system
         self.update_response_area(f"TP hit for {ticker}: {tp['quantity']} @ {tp['price']:.2f}\n")
         
         # Update the active order
@@ -723,50 +854,6 @@ class TradingApp(QMainWindow):
         
         self.save_active_orders()
         self.update_trade_status()
-
-
-
-    def add_tp_level(self):
-        current_ticker = self.ticker_combo.currentText()
-        if current_ticker not in self.tp_levels:
-            self.tp_levels[current_ticker] = []
-        
-        current_price = float(self.price_input.text())
-        
-        # Create a dialog to get TP details from the user
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Add Take Profit Level")
-        layout = QFormLayout(dialog)
-        
-        quantity_input = QSpinBox()
-        quantity_input.setMinimum(1)
-        quantity_input.setValue(1)
-        layout.addRow("Quantity:", quantity_input)
-        
-        target_input = QDoubleSpinBox()
-        target_input.setMinimum(0.01)
-        target_input.setMaximum(1000000)
-        target_input.setValue(10)
-        target_input.setDecimals(2)
-        layout.addRow("Target (offset from entry):", target_input)
-        
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addRow(buttons)
-        
-        if dialog.exec_() == QDialog.Accepted:
-            new_tp = {
-                'enabled': True,
-                'quantity': quantity_input.value(),
-                'target': target_input.value(),
-                'hit': False
-            }
-            self.tp_levels[current_ticker].append(new_tp)
-            self.update_tp_table()
-            self.save_active_orders()
-
-
 
     def remove_tp_level(self):
         current_ticker = self.ticker_combo.currentText()
@@ -781,8 +868,8 @@ class TradingApp(QMainWindow):
         if current_ticker in self.tp_levels and row < len(self.tp_levels[current_ticker]):
             removed_tp = self.tp_levels[current_ticker].pop(row)
             self.update_tp_table()
-            self.adjust_table_height()
             self.save_active_orders()
+            self.adjust_table_size()
             print(f"Removed TP level: {removed_tp}")
         else:
             print("Invalid row selected for removal")
