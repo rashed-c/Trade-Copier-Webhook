@@ -1,27 +1,38 @@
 {
-  "active_orders": {},
+  "active_orders": {
+    "MES": {
+      "symbol": "MES1!",
+      "action": "sell",
+      "quantity": 5,
+      "entry_price": 5797.75,
+      "timestamp": 1728259568
+    }
+  },
   "tp_levels": {
     "MES": [
       {
         "enabled": true,
         "quantity": 1,
-        "target": 1.0,
-        "price": 5761.0,
-        "hit": false
+        "target": 10.0,
+        "price": 5787.75,
+        "hit": false,
+        "Hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
-        "target": 2.0,
-        "price": 5762.0,
-        "hit": false
+        "target": 20.0,
+        "price": 5777.75,
+        "hit": false,
+        "Hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
-        "target": 3.0,
-        "price": 5763.0,
-        "hit": false
+        "target": 30.0,
+        "price": 5767.75,
+        "hit": false,
+        "Hit": false
       }
     ]
   }

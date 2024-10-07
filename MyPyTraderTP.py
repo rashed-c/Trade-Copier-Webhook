@@ -189,6 +189,9 @@ class TradingApp(QMainWindow):
         self.setFixedWidth(450)  # Set a fixed width
         self.setMinimumHeight(400)  # Set a minimum
 
+        self.last_tp_table_update = 0
+        self.tp_table_update_interval = 60  # in seconds
+
 
         self.orders_file = 'active_orders.json'
         self.active_orders = {}
@@ -241,15 +244,19 @@ class TradingApp(QMainWindow):
             self.initialize_databento_worker()
         
         self.update_ui_from_loaded_data()
-        self.check_and_execute_tps_on_startup()
+        #self.check_and_execute_tps_on_startup()
+
+   
 
         # Add these lines at the end of __init__
         self.update_tp_table()
         self.update_layout()
-
+        
 
          # Add this line at the end of __init__
         QTimer.singleShot(0, self.initial_resize)
+        # Add this at the end of __init__
+        QTimer.singleShot(5000, self.delayed_tp_check)
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -447,8 +454,6 @@ class TradingApp(QMainWindow):
         with open(self.orders_file, 'w') as f:
             json.dump(data_to_save, f, indent=2)
 
-
-
     def load_active_orders(self):
         if os.path.exists(self.orders_file):
             try:
@@ -468,7 +473,13 @@ class TradingApp(QMainWindow):
                         del self.tp_levels[ticker]
                         print(f"Removed invalid TP levels for {ticker}")
                     else:
-                        self.tp_levels[ticker] = [tp for tp in tps if isinstance(tp, dict) and 'target' in tp and 'quantity' in tp]
+                        validated_tps = []
+                        for tp in tps:
+                            if isinstance(tp, dict) and 'target' in tp and 'quantity' in tp:
+                                # Ensure 'hit' status is present, default to False if not
+                                tp['hit'] = tp.get('hit', False)
+                                validated_tps.append(tp)
+                        self.tp_levels[ticker] = validated_tps
                 
                 print(f"Loaded active orders: {self.active_orders}")
                 print(f"Loaded TP levels: {self.tp_levels}")
@@ -478,7 +489,38 @@ class TradingApp(QMainWindow):
                 self.tp_levels = {}
         else:
             self.active_orders = {}
-            self.tp_levels = {} 
+            self.tp_levels = {}
+
+    # def load_active_orders(self):
+    #     if os.path.exists(self.orders_file):
+    #         try:
+    #             with open(self.orders_file, 'r') as f:
+    #                 data = json.load(f)
+    #                 self.active_orders = data.get('active_orders', {})
+    #                 self.tp_levels = data.get('tp_levels', {})
+                
+    #             # Validate loaded data
+    #             for ticker, order in list(self.active_orders.items()):
+    #                 if not isinstance(order, dict) or 'entry_price' not in order or 'action' not in order:
+    #                     del self.active_orders[ticker]
+    #                     print(f"Removed invalid order for {ticker}")
+                
+    #             for ticker, tps in list(self.tp_levels.items()):
+    #                 if not isinstance(tps, list):
+    #                     del self.tp_levels[ticker]
+    #                     print(f"Removed invalid TP levels for {ticker}")
+    #                 else:
+    #                     self.tp_levels[ticker] = [tp for tp in tps if isinstance(tp, dict) and 'target' in tp and 'quantity' in tp]
+                
+    #             print(f"Loaded active orders: {self.active_orders}")
+    #             print(f"Loaded TP levels: {self.tp_levels}")
+    #         except json.JSONDecodeError:
+    #             print(f"Error loading {self.orders_file}. Starting with empty orders and TP levels.")
+    #             self.active_orders = {}
+    #             self.tp_levels = {}
+    #     else:
+    #         self.active_orders = {}
+    #         self.tp_levels = {} 
 
     def update_ui_from_loaded_data(self):
         current_ticker = self.ticker_combo.currentText()
@@ -801,7 +843,12 @@ class TradingApp(QMainWindow):
         
         # Adjust table size
         self.adjust_table_size()
-        
+
+
+        # current_time = time()
+        # if current_time - self.last_tp_table_update >= self.tp_table_update_interval:
+        #     print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
+        #     self.last_tp_table_update = current_time
         print(f"Updated TP table for {current_ticker} with {len(self.tp_levels.get(current_ticker, []))} levels")
     
 
@@ -980,37 +1027,6 @@ class TradingApp(QMainWindow):
             self.check_and_update_tp_levels(current_ticker, current_price)
 
 
-    # def add_or_update_trade(self):
-    #     current_price = float(self.price_input.text())
-    #     current_ticker = self.ticker_combo.currentText()
-    #     current_entry_price = self.active_orders.get(current_ticker, {}).get('entry_price')
-    #     dialog = AddTradeDialog(self, current_price, current_entry_price)
-        
-    #     if dialog.exec_():
-    #         entry_price, action = dialog.get_trade_info()
-            
-    #         self.active_orders[current_ticker] = {
-    #             "symbol": current_ticker,
-    #             "action": action,
-    #             "quantity": self.quantity_input.value(),
-    #             "entry_price": entry_price,
-    #             "timestamp": int(time.time())
-    #         }
-            
-    #         if current_ticker not in self.tp_levels:
-    #             self.tp_levels[current_ticker] = []
-            
-            
-    #         self.save_active_orders()
-    #         self.update_trade_status()
-    #         self.update_tp_table()
-    #         self.update_response_area(f"Trade {'updated' if current_entry_price else 'added'}. Entry price: {entry_price}, Action: {action}\n")
-            
-    #         # Force layout update
-    #         QTimer.singleShot(0, self.adjust_table_size)
-            
-    #         # Check and potentially execute TPs immediately
-    #         self.check_and_update_tp_levels(current_ticker, current_price)
 
 
     def force_layout_update(self):
@@ -1078,24 +1094,84 @@ class TradingApp(QMainWindow):
         self.tp_table.updateGeometry()
         self.tp_table_container.updateGeometry()
 
-    def check_and_execute_tps_on_startup(self):
-        for ticker, order in self.active_orders.items():
-            current_price = self.current_prices.get(ticker, order['entry_price'])
-            self.check_and_update_tp_levels(ticker, current_price)
+
+    # def check_and_execute_tps_on_startup(self):
+    #     max_retries = 5
+    #     retry_delay = 1  # seconds
+
+    #     for ticker, order in self.active_orders.items():
+    #         for attempt in range(max_retries):
+    #             current_price = self.current_prices.get(ticker)
+    #             if current_price is not None and current_price != 0:
+    #                 break
+    #             print(f"Waiting for price update for {ticker}, attempt {attempt + 1}/{max_retries}")
+    #             time.sleep(retry_delay)
+            
+    #         if current_price is None or current_price == 0:
+    #             print(f"No current price available for {ticker} after {max_retries} attempts, skipping TP check")
+    #             continue
+
+    #         if ticker in self.tp_levels:
+    #             for tp in self.tp_levels[ticker]:
+    #                 if tp['enabled'] and not tp['hit']:
+    #                     tp_price = tp['price']
+    #                     if ((order['action'] == 'buy' and current_price >= tp_price) or 
+    #                         (order['action'] == 'sell' and current_price <= tp_price)):
+    #                         tp['hit'] = True
+    #                         self.execute_tp_order(ticker, tp)
+    #                     else:
+    #                         print(f"TP for {ticker} not hit: Current price {current_price}, TP price {tp_price}")
+    #                 elif tp['hit']:
+    #                     print(f"TP for {ticker} already hit: {tp}")
+            
+    #         self.update_tp_table()
+                
+
+
+
+    # def check_and_update_tp_levels(self, ticker, current_price):
+    #     if ticker not in self.active_orders or ticker not in self.tp_levels:
+    #         return
+
+    #     for tp in self.tp_levels[ticker]:
+    #         if tp['enabled'] and not tp['hit']:
+    #             if (self.active_orders[ticker]['action'] == 'buy' and current_price >= tp['price']) or \
+    #             (self.active_orders[ticker]['action'] == 'sell' and current_price <= tp['price']):
+    #                 tp['hit'] = True
+    #                 self.execute_tp_order(ticker, tp)
+        
+    #     self.update_tp_table()
+
 
     def check_and_update_tp_levels(self, ticker, current_price):
-        if ticker not in self.active_orders or ticker not in self.tp_levels:
+        if ticker not in self.tp_levels or ticker not in self.active_orders:
             return
+
+        if current_price is None or current_price == 0:
+            print(f"No current price available for {ticker}, skipping TP check")
+            return
+
+        order = self.active_orders[ticker]
+        action = order['action']
 
         for tp in self.tp_levels[ticker]:
             if tp['enabled'] and not tp['hit']:
-                if (self.active_orders[ticker]['action'] == 'buy' and current_price >= tp['price']) or \
-                (self.active_orders[ticker]['action'] == 'sell' and current_price <= tp['price']):
+                tp_price = tp['price']
+                if (action == 'buy' and current_price >= tp_price) or \
+                (action == 'sell' and current_price <= tp_price):
                     tp['hit'] = True
                     self.execute_tp_order(ticker, tp)
-        
+                else:
+                    print(f"TP for {ticker} not hit: Current price {current_price}, TP price {tp_price}")
+            elif tp['hit']:
+                print(f"TP for {ticker} already hit: {tp}")
+
         self.update_tp_table()
 
+    def delayed_tp_check(self):
+        for ticker in self.active_orders.keys():
+            self.check_and_update_tp_levels(ticker, self.current_prices.get(ticker, 0))
+        self.update_response_area("Initial TP check completed.\n")
 
 
     def execute_tp_order(self, ticker, tp):
@@ -1341,6 +1417,7 @@ class TradingApp(QMainWindow):
         else:
             return "stop"
         
+
     def send_order(self, action):
         ticker = self.ticker_combo.currentText()
         symbol = self.ticker_map.get(ticker, ticker)
@@ -1393,6 +1470,16 @@ class TradingApp(QMainWindow):
                         "entry_price": current_price,
                         "timestamp": int(time.time())
                     }
+                    # Update TP prices
+                    if ticker in self.tp_levels:
+                        for tp in self.tp_levels[ticker]:
+                            if action == "buy":
+                                tp['price'] = current_price + tp['target']
+                                tp['hit'] = False
+                            else:  # sell
+                                tp['price'] = current_price - tp['target']
+                                tp['hit'] = False
+
                     self.save_active_orders()
                 
                 response_text = f"{action.capitalize()} order sent successfully for {symbol}!\n"
