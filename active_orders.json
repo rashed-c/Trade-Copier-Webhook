@@ -1,38 +1,91 @@
 {
-  "active_orders": {
-    "MES": {
-      "symbol": "MES1!",
-      "action": "sell",
-      "quantity": 5,
-      "entry_price": 5797.75,
-      "timestamp": 1728259568
-    }
-  },
+  "active_orders": {},
   "tp_levels": {
     "MES": [
       {
         "enabled": true,
         "quantity": 1,
         "target": 10.0,
-        "price": 5787.75,
-        "hit": false,
-        "Hit": false
+        "price": 5010.0,
+        "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 20.0,
-        "price": 5777.75,
-        "hit": false,
-        "Hit": false
+        "price": 5020.0,
+        "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 30.0,
-        "price": 5767.75,
-        "hit": false,
-        "Hit": false
+        "price": 5030.0,
+        "hit": false
+      }
+    ],
+    "MCL": [
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 0.2,
+        "price": 75.45,
+        "hit": false
+      }
+    ],
+    "MGC": [
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 5.0,
+        "price": 2669.1,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 10.0,
+        "price": 2664.1,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 15.0,
+        "price": 2659.1,
+        "hit": false
+      }
+    ],
+    "MNQ": [
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 10.0,
+        "price": 19986.25,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 10.0,
+        "price": 19978.75,
+        "hit": false
+      },
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 10.0,
+        "price": 19979.5,
+        "hit": false
+      }
+    ],
+    "ES": [
+      {
+        "enabled": true,
+        "quantity": 1,
+        "target": 10.0,
+        "price": 5865.25,
+        "hit": false
       }
     ]
   }
