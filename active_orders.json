@@ -6,21 +6,21 @@
         "enabled": true,
         "quantity": 1,
         "target": 10.0,
-        "price": 5010.0,
+        "price": 5871.25,
         "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 20.0,
-        "price": 5020.0,
+        "price": 5861.25,
         "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 30.0,
-        "price": 5030.0,
+        "price": 5851.25,
         "hit": false
       }
     ],
@@ -29,7 +29,7 @@
         "enabled": true,
         "quantity": 1,
         "target": 0.2,
-        "price": 75.45,
+        "price": 69.75999999999999,
         "hit": false
       }
     ],
@@ -38,21 +38,21 @@
         "enabled": true,
         "quantity": 1,
         "target": 5.0,
-        "price": 2669.1,
+        "price": 2675.8,
         "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 10.0,
-        "price": 2664.1,
+        "price": 2670.8,
         "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 15.0,
-        "price": 2659.1,
+        "price": 2665.8,
         "hit": false
       }
     ],
@@ -60,22 +60,22 @@
       {
         "enabled": true,
         "quantity": 1,
-        "target": 10.0,
-        "price": 19986.25,
+        "target": 5.0,
+        "price": 20276.0,
         "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
         "target": 10.0,
-        "price": 19978.75,
+        "price": 20271.0,
         "hit": false
       },
       {
         "enabled": true,
         "quantity": 1,
-        "target": 10.0,
-        "price": 19979.5,
+        "target": 100.0,
+        "price": 20181.0,
         "hit": false
       }
     ],
@@ -84,7 +84,7 @@
         "enabled": true,
         "quantity": 1,
         "target": 10.0,
-        "price": 5865.25,
+        "price": 5879.25,
         "hit": false
       }
     ]

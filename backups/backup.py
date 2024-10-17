@@ -45,7 +45,7 @@ class ArchiveWorker(QThread):
             dataset="GLBX.MDP3",
             schema="ohlcv-1m",
             stype_in="continuous",
-            symbols=["MES.c.0", "MNQ.c.0", "MCL.c.0", "MGC.c.1"],
+            symbols=["MES.c.0", "MNQ.c.0", "MCL.c.0", "MGC.c.1, ES.c.0", "NQ.c.0", "CL.c.0", "GC.c.1"],
             start=start_time
         )
         
@@ -81,17 +81,17 @@ class ArchiveWorker(QThread):
             try:
                 current_date = datetime.now().strftime('%Y%m%d')
                 filename = f"ohlcv-1m_{current_date}.dbn"
-                file_path = os.path.join(archive_dir, filename)
+                self.file_path = os.path.join(archive_dir, filename)
 
-                if os.path.exists(file_path):
+                if os.path.exists(self.file_path):
                     # File exists, start from the latest timestamp in the file
-                    last_timestamp = self.get_latest_timestamp(file_path)
+                    last_timestamp = self.get_latest_timestamp(self.file_path)
                     start_time = last_timestamp + timedelta(minutes=1) if last_timestamp else datetime.now().replace(second=0, microsecond=0)
                 else:
                     # New file, start from 2 hours ago
-                    start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(hours=2)
+                    start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=20)
 
-                self.create_or_continue_file(file_path, start_time)
+                self.create_or_continue_file(self.file_path, start_time)
 
                 # After processing for the current day, wait until the next day
                 tomorrow = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
@@ -104,6 +104,8 @@ class ArchiveWorker(QThread):
 
     def stop(self):
         self.running = False
+        if os.path.exists(self.file_path):
+            os.remove(self.file_path)
         if self.live:
             self.live.stop()
 
@@ -371,6 +373,7 @@ class TradingApp(QMainWindow):
         self.archive_worker = None
         
         self.setup_ui()
+        self.update_contract_type()
         # Connect the new signal
         self.tp_table.tp_changed.connect(self.update_tp_level)
         self.initialize_price_and_stoploss()
@@ -420,26 +423,36 @@ class TradingApp(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)  # Add some padding
         
         input_layout = QGridLayout()
+
+        # Add Ticker selection
         input_layout.addWidget(QLabel("Ticker:"), 0, 0)
         self.ticker_combo = QComboBox()
-        self.ticker_combo.addItems(self.symbol_map.keys())
         self.ticker_combo.currentTextChanged.connect(self.on_ticker_changed)
         input_layout.addWidget(self.ticker_combo, 0, 1)
-        
+
+        # Add Contract Type selection
+        input_layout.addWidget(QLabel("Contract Type:"), 0, 2)
+        self.contract_type_combo = QComboBox()
+        self.contract_type_combo.addItems(["Micros", "Minis"])
+        self.contract_type_combo.currentIndexChanged.connect(lambda _: self.update_contract_type())
+        input_layout.addWidget(self.contract_type_combo, 0, 3)
+
+        # Price input
         input_layout.addWidget(QLabel("Price:"), 1, 0)
         self.price_input = QLineEdit("0")
         self.price_input.setReadOnly(True)
         input_layout.addWidget(self.price_input, 1, 1)
-        
+
+        # Quantity input
         input_layout.addWidget(QLabel("Quantity:"), 2, 0)
         self.quantity_input = QSpinBox()
         self.quantity_input.setMinimum(1)
         self.quantity_input.setValue(5)
         input_layout.addWidget(self.quantity_input, 2, 1)
-        
+
         main_layout.addLayout(input_layout)
 
-        
+        # Stop Loss layout
         stop_loss_layout = QGridLayout()
         stop_loss_layout.addWidget(QLabel("Stop Loss Amount:"), 0, 0)
         self.stop_loss_input = QLineEdit("0")
@@ -458,10 +471,13 @@ class TradingApp(QMainWindow):
         stop_loss_layout.addWidget(QLabel("Stop Loss Calculation:"), 2, 0)
         self.stop_loss_calc_combo = QComboBox()
         self.stop_loss_calc_combo.addItems(["Manual", "ATR"])
-        self.stop_loss_calc_combo.setCurrentText("ATR")
+        self.stop_loss_calc_combo.setCurrentText("Manual")
         self.stop_loss_calc_combo.currentTextChanged.connect(self.on_stop_loss_calc_changed)
         stop_loss_layout.addWidget(self.stop_loss_calc_combo, 2, 1)
-        
+
+        main_layout.addLayout(stop_loss_layout)
+
+        # ATR layout
         atr_layout = QHBoxLayout()
         atr_layout.addWidget(QLabel("ATR Multiplier:"))
         self.atr_multiplier_input = QDoubleSpinBox()
@@ -477,7 +493,7 @@ class TradingApp(QMainWindow):
         atr_layout.addWidget(self.atr_label)
         
         atr_layout.addStretch()
-        stop_loss_layout.addLayout(atr_layout, 3, 0, 1, 3)
+        main_layout.addLayout(atr_layout)
         
         main_layout.addLayout(stop_loss_layout)
         
@@ -568,13 +584,76 @@ class TradingApp(QMainWindow):
         central_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
 
+
+        
+    def update_contract_type(self):
+        contract_type = self.contract_type_combo.currentText()
+        if contract_type == "Micros":
+            self.symbol_map = {
+                "MES": "MES.c.0",
+                "MNQ": "MNQ.c.0",
+                "MGC": "MGC.c.1",
+                "MCL": "MCL.c.0"
+            }
+            self.ticker_map = {
+                "MNQ": "MNQ1!",
+                "MGC": "MGCZ2024",
+                "MES": "MES1!",
+                "MCL": "MCL1!"
+            }
+            self.default_stop_loss_amounts = {
+                "MES": 10,
+                "MNQ": 40,
+                "MGC": 5,
+                "MCL": .30
+            }
+        else:  # Minis
+            self.symbol_map = {
+                "ES": "ES.c.0",
+                "NQ": "NQ.c.0",
+                "GC": "GC.c.1",
+                "CL": "CL.c.0"
+            }
+            self.ticker_map = {
+                "NQ": "NQ1!",
+                "GC": "GCZ2024",
+                "ES": "ES1!",
+                "CL": "CL1!"
+            }
+            self.default_stop_loss_amounts = {
+                "ES": 10,
+                "NQ": 40,
+                "GC": 5,
+                "CL": .30
+            }
+        
+        # Update the ticker combo box
+        current_ticker = self.ticker_combo.currentText()
+        self.ticker_combo.blockSignals(True)
+        self.ticker_combo.clear()
+        self.ticker_combo.addItems(self.symbol_map.keys())
+        if current_ticker in self.symbol_map:
+            self.ticker_combo.setCurrentText(current_ticker)
+        else:
+            self.ticker_combo.setCurrentIndex(0)
+        self.ticker_combo.blockSignals(False)
+        
+        # Update the current ticker and its values
+        self.update_default_values(self.ticker_combo.currentText())
+        self.update_stop_loss_display(self.ticker_combo.currentText())
+        self.update_trade_status()
+        self.populate_tp_table()
+        self.update_atr()
+        if self.is_databento_initialized:
+            self.initialize_databento_worker()
     def update_tp_quantity_max(self):
         current_ticker = self.ticker_combo.currentText()
         if current_ticker in self.active_orders:
             max_quantity = self.active_orders[current_ticker]['quantity']
             self.tp_quantity_spinbox.setMaximum(max_quantity)
+            self.tp_quantity_spinbox.setEnabled(True)
         else:
-            self.tp_quantity_spinbox.setMaximum(1)
+            self.tp_quantity_spinbox.setEnabled(False)
 
     def send_take_profit_order(self):
         current_ticker = self.ticker_combo.currentText()
@@ -645,25 +724,8 @@ class TradingApp(QMainWindow):
         self.save_settings()
         self.save_active_orders()
         print("Cleanup completed.")
-    
-    # def cleanup(self):
-    #     print("Cleaning up...")
-    #     if self.databento_worker:
-    #         print("Stopping Databento worker...")
-    #         self.stop_databento_worker()
-    #     if self.archive_worker:
-    #         print("Stopping Archive worker...")
-    #         self.archive_worker.stop()
-    #         self.archive_worker.wait()
-    #     if hasattr(self, 'historical_timer'):
-    #         print("Stopping historical timer...")
-    #         self.historical_timer.stop()
-    #     self.save_active_orders()
-    #     self.save_settings()
-    #     print("Cleanup completed.")
 
     def closeEvent(self, event):
-        #self.cleanup()
         event.accept()
 
 
@@ -1143,11 +1205,11 @@ class TradingApp(QMainWindow):
         if self.is_databento_initialized:
             self.initialize_databento_worker()
         self.update_trade_status()
-        self.populate_tp_table()  # Use the new method here instead of update_tp_table
+        self.populate_tp_table()
         self.update_stop_loss_display(ticker)
         self.update_atr()
         
-        print(f"Ticker changed to {ticker}")
+        print(f"Ticker changed to {ticker}") 
 
 
     def clear_trade(self, ticker=None):
@@ -1202,6 +1264,7 @@ class TradingApp(QMainWindow):
             self.save_active_orders()
             self.update_trade_status()
             self.update_tp_table()
+            self.update_tp_quantity_max()
             self.update_response_area(f"Trade {'updated' if current_entry_price else 'added'}. Entry price: {entry_price}, Action: {action}\n")
             
             # Force layout update
@@ -1450,9 +1513,13 @@ class TradingApp(QMainWindow):
         self.force_tp_table_update()  # Force immediate update
 
 
-
     def handle_databento_data(self, subscription_id, message):
         try:
+            if isinstance(message, db.SystemMsg):
+                # Handle system messages (like Heartbeat)
+                print(f"Received system message: {message.msg}")
+                return  # Skip further processing for system messages
+
             if subscription_id == "historical":
                 ticker = self.ticker_combo.currentText()
                 if hasattr(message, 'close'):
@@ -1473,65 +1540,54 @@ class TradingApp(QMainWindow):
                 else:
                     print(f"Unexpected message format: {message}")
                     return
-                if ticker:
-                    self.current_prices[ticker] = price
-                    if ticker == self.ticker_combo.currentText():
-                        self.price_input.setText(f"{price:.2f}")
-                        self.update_tp_table()  # This will now only update the price column
-                        # Update ATR when new data is received
-                        #self.update_atr()
 
-                        
-                        # Check and update stop loss
-                        if ticker in self.active_orders:
-                            if self.check_stop_loss(ticker, price):
-                                                    # Stop loss hit, send exit order
-                                exit_order = {
-                                    "ticker": self.ticker_map.get(ticker, ticker),
-                                    "action": "exit",
-                                    "orderType": "market",
-                                    #"sentiment": "flat"
-                                    #"quantity": order['quantity']  # Exit the full position
-                                }
-                                try:
-                                    #Cancel existing order
-                                    response = requests.post(self.api_url, json=exit_order)
-                                    response.raise_for_status()
-                                    #Send new order
-                                    response = requests.post(self.api_url, json=exit_order)
-                                    response.raise_for_status()
-                                    
-                                    response_data = response.json()
-                                    if response_data.get("success"):
-                                        self.update_response_area(f"Stop loss hit for {ticker} at price {price:.2f}. Exit order sent.\n")
-                                        # Remove the order from active orders
-                                        del self.active_orders[ticker]
-                                        self.save_active_orders()
-                                        self.update_trade_status()
-                                        self.update_tp_table()
-                                    else:
-                                        self.update_response_area(f"Error sending exit order for stop loss: {response_data}\n")
-                                except requests.RequestException as e:
-                                    self.update_response_area(f"Error sending exit order for stop loss: {str(e)}\n")
-                                self.clear_trade(ticker)
-                                #self.update_response_area(f"Stop loss hit for {ticker} at price {price:.2f}. Trade cleared.\n")
-                            else:
-                                self.update_stop_loss_display(ticker)
-                        
-                        # Check and execute TPs
-                        if ticker in self.tp_levels:
-                            for tp in self.tp_levels[ticker]:
-                                if tp['enabled'] and not tp['hit']:
-                                    if ticker in self.active_orders:
-                                        action = self.active_orders[ticker]['action']
-                                        if (action == 'buy' and price >= tp['price']) or \
-                                        (action == 'sell' and price <= tp['price']):
-                                            tp['hit'] = True
-                                            self.execute_tp_order(ticker, tp)
-                                            self.update_tp_table() 
- 
+            if ticker:
+                self.current_prices[ticker] = price
+                if ticker == self.ticker_combo.currentText():
+                    self.price_input.setText(f"{price:.2f}")
+                    self.update_tp_table()
+
+                    # Check and update stop loss
+                    if ticker in self.active_orders:
+                        if self.check_stop_loss(ticker, price):
+                            # Stop loss hit, send exit order
+                            exit_order = {
+                                "ticker": self.ticker_map.get(ticker, ticker),
+                                "action": "exit",
+                                "orderType": "market",
+                            }
+                            try:
+                                response = requests.post(self.api_url, json=exit_order)
+                                response.raise_for_status()
+                                
+                                response_data = response.json()
+                                if response_data.get("success"):
+                                    self.update_response_area(f"Stop loss hit for {ticker} at price {price:.2f}. Exit order sent.\n")
+                                    del self.active_orders[ticker]
+                                    self.save_active_orders()
+                                    self.update_trade_status()
+                                    self.update_tp_table()
+                                else:
+                                    self.update_response_area(f"Error sending exit order for stop loss: {response_data}\n")
+                            except requests.RequestException as e:
+                                self.update_response_area(f"Error sending exit order for stop loss: {str(e)}\n")
+                            self.clear_trade(ticker)
+                        else:
+                            self.update_stop_loss_display(ticker)
                     
-                    self.update_tp_table()  # Update again after potential TP executions
+                    # Check and execute TPs
+                    if ticker in self.tp_levels:
+                        for tp in self.tp_levels[ticker]:
+                            if tp['enabled'] and not tp['hit']:
+                                if ticker in self.active_orders:
+                                    action = self.active_orders[ticker]['action']
+                                    if (action == 'buy' and price >= tp['price']) or \
+                                    (action == 'sell' and price <= tp['price']):
+                                        tp['hit'] = True
+                                        self.execute_tp_order(ticker, tp)
+                                        self.update_tp_table()
+                
+                self.update_tp_table()  # Update again after potential TP executions
                         
         except Exception as e:
             print(f"Error processing data: {type(e).__name__}: {str(e)}")
@@ -1613,6 +1669,7 @@ class TradingApp(QMainWindow):
 
     
     def initialize_price_and_stoploss(self):
+        self.update_contract_type()  # Add this li
         initial_ticker = self.ticker_combo.currentText()
         self.update_default_values(initial_ticker)
         
@@ -1862,6 +1919,7 @@ class TradingApp(QMainWindow):
                     response_text += f"Entry Price: {order['limitPrice']}\n"
                 if "stopLoss" in order:
                     stop_loss_info = order['stopLoss']
+                    #response_text += f"Stop Loss: {stop_loss_info['type']} @ {stop_loss_info['stopPrice']:.2f}\n"
                     if stop_loss_info['type'] == "trailing_stop":
                         response_text += f"Stop Loss: {stop_loss_info['type']} @ {stop_loss_info['trailAmount']:.2f}\n"
                     else:
@@ -1876,101 +1934,7 @@ class TradingApp(QMainWindow):
 
    
 
-    # def send_order(self, action):
-    #     ticker = self.ticker_combo.currentText()
-    #     symbol = self.ticker_map.get(ticker, ticker)
-
-    #     try:
-    #         current_price = float(self.price_input.text())
-    #         quantity = self.quantity_input.value()
-    #         stop_loss_amount = float(self.stop_loss_input.text())
-    #     except ValueError:
-    #         self.update_response_area("Error: Invalid input for price or stop loss.\n")
-    #         return
-        
-    #     order = {
-    #         "ticker": symbol,
-    #         "action": action,
-    #         "orderType": "market",
-    #         "limitPrice": current_price,
-    #         "quantity": quantity
-    #     }
-        
-    #     if action in ["buy", "sell"]:
-    #         stop_loss_type = self.stop_loss_type_combo.currentText()
-    #         if stop_loss_type == "Trailing":
-    #             stop_loss_info = {
-    #                 "type": "trailing_stop",
-    #                 "trailAmount": stop_loss_amount
-    #             }
-    #         else:
-    #             if action == "buy":
-    #                 stop_loss_price = current_price - stop_loss_amount
-    #             else:  # sell
-    #                 stop_loss_price = current_price + stop_loss_amount
-                
-    #             stop_loss_info = {
-    #                 "type": self.get_stop_loss_type(stop_loss_type),
-    #                 "stopPrice": stop_loss_price
-    #             }
-            
-    #         order["stopLoss"] = stop_loss_info
-        
-    #     try:
-    #         response = requests.post(self.api_url, json=order)
-    #         response.raise_for_status()
-            
-    #         response_data = response.json()
-    #         if response_data.get("success"):
-    #             if action != "exit":
-    #                 self.active_orders[ticker] = {
-    #                     "symbol": ticker,
-    #                     "action": action,
-    #                     "quantity": quantity,
-    #                     "entry_price": current_price,
-    #                     "timestamp": int(time.time()),
-    #                     "stop_loss": order.get("stopLoss")  # Store stop loss info
-    #                 }
-    #                 # Update TP prices
-    #                 if ticker in self.tp_levels:
-    #                     for tp in self.tp_levels[ticker]:
-    #                         if action == "buy":
-    #                             tp['price'] = current_price + tp['target']
-    #                             tp['hit'] = False
-    #                         else:  # sell
-    #                             tp['price'] = current_price - tp['target']
-    #                             tp['hit'] = False
-
-    #                 self.save_active_orders()
-                
-    #             response_text = f"{action.capitalize()} order sent successfully for {symbol}!\n"
-    #             if action != "exit":
-    #                 response_text += f"Entry Price: {current_price}\n"
-    #             if "stopLoss" in order:
-    #                 stop_loss_info = order['stopLoss']
-    #                 if stop_loss_info['type'] == "trailing_stop":
-    #                     response_text += f"Stop Loss: {stop_loss_info['type']} @ {stop_loss_info['trailAmount']:.2f}\n"
-    #                 else:
-    #                     response_text += f"Stop Loss: {stop_loss_info['type']} @ {stop_loss_info['stopPrice']:.2f}\n"
-                
-    #             if action == "exit":
-    #                 if ticker in self.active_orders:
-    #                     del self.active_orders[ticker]
-    #                     self.save_active_orders()
-    #                     response_text += f"Removed order for {ticker} from active orders.\n"
-                
-    #             self.update_trade_status()
-    #             self.update_tp_table()
-    #             self.update_stop_loss_display(ticker)
-    #         else:
-    #             response_text = f"Error sending {action} order for {symbol}: Unsuccessful response from server\n"
-    #             response_text += f"Response: {json.dumps(response_data, indent=2)}\n\n"
-            
-    #         self.update_response_area(response_text)
-    #     except requests.RequestException as e:
-    #         error_text = f"Error sending {action} order for {symbol}: {str(e)}\n\n"
-    #         self.update_response_area(error_text)
-    
+ 
 
     def update_response_area(self, text):
         self.response_area.append(text)

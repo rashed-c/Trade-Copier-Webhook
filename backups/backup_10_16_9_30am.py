@@ -316,7 +316,7 @@ class TradingApp(QMainWindow):
         super().__init__()
         
         self.setWindowTitle("Trading App")
-        self.setFixedWidth(500)  # Set a fixed width
+        self.setFixedWidth(450)  # Set a fixed width
         self.setMinimumHeight(400)  # Set a minimum
                 
         
@@ -340,17 +340,13 @@ class TradingApp(QMainWindow):
         }
         
         self.default_stop_loss_amounts = {
-                "MES": 3,
-                "MNQ": 10,
-                "MGC": 2,
-                "MCL": .10
-            }
-        self.default_trail_by_amounts = {
-                "MES": 10,
-                "MNQ": 40,
-                "MGC": 5,
-                "MCL": .40
-            }
+            "MES": 10,
+            "MNQ": 30,
+            "MGC": 4,
+            "MCL": .73
+        }
+
+
 
         self.ticker_map = {
             "MNQ": "MNQ1!",
@@ -365,8 +361,7 @@ class TradingApp(QMainWindow):
         self.atr_period = 14  # Default ATR period
         self.atr_lookback = 390  # Default to 6.5 hours (typical trading day)
         self.atr_values = {}  # Dictionary to store ATR values for each ticker
-        self.trail_by_amount = 0
-        self.first_tp_hit = False 
+        
         
         self.load_settings()
         self.load_active_orders()  # Load active orders before setting up UI
@@ -401,14 +396,6 @@ class TradingApp(QMainWindow):
         else:
             self.enable_archive_action.setChecked(False) 
 
-        if self.stop_loss_calc_combo.currentText() == "ATR":
-            self.stop_loss_input.setReadOnly(True)
-            self.atr_multiplier_input.setEnabled(True)
-            self.update_atr_stop_loss()
-        else:
-            self.stop_loss_input.setReadOnly(False)
-            self.atr_multiplier_input.setEnabled(False)
-
         # self.update_checkbox.setChecked(True)
         # #self.always_on_top_checkbox.setChecked(True)
         
@@ -428,7 +415,6 @@ class TradingApp(QMainWindow):
         self.update_tp_table()
         self.update_layout()
         self.update_atr()
-
         
         QApplication.instance().aboutToQuit.connect(self.cleanup)
          # Add this line at the end of __init__
@@ -471,7 +457,7 @@ class TradingApp(QMainWindow):
         input_layout.addWidget(self.quantity_input, 2, 1)
 
         main_layout.addLayout(input_layout)
-        
+
         # Stop Loss layout
         stop_loss_layout = QGridLayout()
         stop_loss_layout.addWidget(QLabel("Stop Loss Amount:"), 0, 0)
@@ -479,30 +465,21 @@ class TradingApp(QMainWindow):
         stop_loss_layout.addWidget(self.stop_loss_input, 0, 1)
 
         self.stop_loss_price_label = QLabel("Stop Loss @: N/A")
-        #self.stop_loss_price_label.setStyleSheet("color: red;")
+        self.stop_loss_price_label.setStyleSheet("color: red;")
         stop_loss_layout.addWidget(self.stop_loss_price_label, 0, 2)
         
         stop_loss_layout.addWidget(QLabel("Stop Loss Type:"), 1, 0)
         self.stop_loss_type_combo = QComboBox()
-        self.stop_loss_type_combo.addItems(["Market", "Limit", "Trailing", "Trail after 1st TP"])
-        self.stop_loss_type_combo.setCurrentText("Trail after 1st TP")
+        self.stop_loss_type_combo.addItems(["Market", "Limit", "Trailing"])
+        self.stop_loss_type_combo.setCurrentText("Trailing")
         stop_loss_layout.addWidget(self.stop_loss_type_combo, 1, 1)
-
-
-        # Add the BE checkbox
-        self.be_checkbox = QCheckBox("Break Even")
-        stop_loss_layout.addWidget(self.be_checkbox, 1, 2)
         
-        stop_loss_layout.addWidget(QLabel("Trail by:"), 2, 0)
-        self.trail_by_input = QLineEdit("0")
-        stop_loss_layout.addWidget(self.trail_by_input, 2, 1)
-        
-        stop_loss_layout.addWidget(QLabel("Stop Loss Calculation:"), 3, 0)
+        stop_loss_layout.addWidget(QLabel("Stop Loss Calculation:"), 2, 0)
         self.stop_loss_calc_combo = QComboBox()
         self.stop_loss_calc_combo.addItems(["Manual", "ATR"])
         self.stop_loss_calc_combo.setCurrentText("Manual")
         self.stop_loss_calc_combo.currentTextChanged.connect(self.on_stop_loss_calc_changed)
-        stop_loss_layout.addWidget(self.stop_loss_calc_combo, 3, 1)
+        stop_loss_layout.addWidget(self.stop_loss_calc_combo, 2, 1)
 
         main_layout.addLayout(stop_loss_layout)
 
@@ -640,22 +617,10 @@ class TradingApp(QMainWindow):
                 "MCL": "MCL1!"
             }
             self.default_stop_loss_amounts = {
-                "MES": 3,
-                "MNQ": 10,
-                "MGC": 2,
-                "MCL": .10
-            }
-            self.default_trail_by_amounts = {
                 "MES": 10,
                 "MNQ": 40,
                 "MGC": 5,
-                "MCL": .40
-            }
-            self.default_quantity = {
-                "MES": 5,
-                "MNQ": 5,
-                "MGC": 5,
-                "MCL": 5
+                "MCL": .30
             }
         else:  # Minis
             self.symbol_map = {
@@ -671,22 +636,10 @@ class TradingApp(QMainWindow):
                 "CL": "CL1!"
             }
             self.default_stop_loss_amounts = {
-                "ES": 3,
-                "NQ": 10,
-                "GC": 2,
-                "CL": .10
-            }
-            self.default_trail_by_amounts = {
                 "ES": 10,
                 "NQ": 40,
                 "GC": 5,
-                "CL": .40
-            }
-            self.default_quantity = {
-                "ES": 2,
-                "NQ": 2,
-                "GC": 2,
-                "CL": 2
+                "CL": .30
             }
         
         # Update the ticker combo box
@@ -1470,29 +1423,6 @@ class TradingApp(QMainWindow):
                     return True
                 if new_stop_price < stop_price:
                     stop_loss['stopPrice'] = new_stop_price
-        elif stop_type == 'trail_after_1st_tp':
-            initial_stop_price = stop_loss.get('initialStopPrice')
-            if initial_stop_price is None:
-                return False
-            if not self.first_tp_hit:
-                if action == 'buy' and current_price <= initial_stop_price:
-                    return True
-                elif action == 'sell' and current_price >= initial_stop_price:
-                    return True
-            else:
-                # After first TP hit, behave like a trailing stop
-                if action == 'buy':
-                    new_stop_price = max(current_price - trail_amount, stop_price or initial_stop_price)
-                    if current_price <= new_stop_price:
-                        return True
-                    if new_stop_price > (stop_price or initial_stop_price):
-                        stop_loss['stopPrice'] = new_stop_price
-                elif action == 'sell':
-                    new_stop_price = min(current_price + trail_amount, stop_price or initial_stop_price)
-                    if current_price >= new_stop_price:
-                        return True
-                    if new_stop_price < (stop_price or initial_stop_price):
-                        stop_loss['stopPrice'] = new_stop_price
 
         return False
     
@@ -1564,6 +1494,35 @@ class TradingApp(QMainWindow):
         else:
             self.update_response_area("No active trade to check exit condition.\n")
 
+
+    # def check_exit_condition(self):
+    #     current_ticker = self.ticker_combo.currentText()
+    #     if current_ticker in self.active_orders:
+    #         current_price = float(self.price_input.text())
+    #         entry_price = self.active_orders[current_ticker]['entry_price']
+    #         action = self.active_orders[current_ticker]['action']
+    #         selected_action = self.action_combo.currentText()
+            
+    #         # Check if the trade is in profit
+    #         is_in_profit = (action == 'buy' and current_price > entry_price) or (action == 'sell' and current_price < entry_price)
+            
+    #         if selected_action in ["Exit", "Reverse"]:
+    #             if not is_in_profit:
+    #                 if selected_action == "Exit":
+    #                     self.send_order("exit")
+    #                     self.update_response_area("Timer expired. Not in profit. Exiting trade.\n")
+    #                 else:  # Reverse
+    #                     self.reverse_trade(current_ticker, current_price, action)
+    #                     self.update_response_area("Timer expired. Not in profit. Reversing trade.\n")
+    #             else:
+    #                 self.update_response_area(f"Timer expired. In profit. Holding trade ({selected_action} not executed).\n")
+    #         else:  # Hold
+    #             self.update_response_area("Timer expired. Holding trade as per selected action.\n")
+            
+    #         # Restart the timer
+    #         self.start_trade_timer()
+    #     else:
+    #         self.update_response_area("No active trade to check exit condition.\n")
 
 
 
@@ -1737,65 +1696,16 @@ class TradingApp(QMainWindow):
                     
                     # Update the active order
                     self.active_orders[ticker]['quantity'] -= tp['quantity']
-                    remaining_quantity = self.active_orders[ticker]['quantity']
-                    
-                    if remaining_quantity <= 0:
+                    if self.active_orders[ticker]['quantity'] <= 0:
                         del self.active_orders[ticker]
                         self.update_response_area(f"Order for {ticker} fully closed and removed from active orders.\n")
-                    else:
-                        # Update trailing stop
-                        self.update_trailing_stop(ticker, tp['price'], remaining_quantity)
-                    
-                    self.save_active_orders()
-                    self.update_trade_status()
-                    self.update_tp_table()
                 else:
                     self.update_response_area(f"Error sending exit order for TP: {response_data}\n")
             except requests.RequestException as e:
                 self.update_response_area(f"Error sending exit order for TP: {str(e)}\n")
-        
-        self.update_tp_quantity_max()
+        self.update_tp_quantity_max()  # Add this line to update the TP quantity spinbox
         self.save_active_orders()
         self.update_trade_status()
-
-
-
-    def update_trailing_stop(self, ticker, signal_price, remaining_quantity):
-        if ticker not in self.active_orders:
-            return
-
-        order = self.active_orders[ticker]
-        stop_loss = order.get('stop_loss', {})
-        
-        trail_amount = stop_loss.get('trailAmount') or float(self.trail_by_input.text())
-
-        update_order = {
-            "ticker": self.ticker_map.get(ticker, ticker),
-            "action": "exit",
-            "orderType": "trailing_stop",
-            "signalPrice": str(int(signal_price)),  # Convert to integer and then to string
-            "trailAmount": str(trail_amount),
-            "quantity": str(remaining_quantity)
-        }
-
-        try:
-            response = requests.post(self.api_url, json=update_order)
-            response.raise_for_status()
-            
-            response_data = response.json()
-            if response_data.get("success"):
-                self.update_response_area(f"Updated trailing stop for {ticker}. Signal price: {signal_price}, Trail amount: {trail_amount}, Remaining quantity: {remaining_quantity}\n")
-                order['stop_loss'] = {
-                    "type": "trailing_stop",
-                    "trailAmount": trail_amount,
-                    "signalPrice": signal_price
-                }
-                self.save_active_orders()
-            else:
-                self.update_response_area(f"Error updating trailing stop: {response_data}\n")
-        except requests.RequestException as e:
-            self.update_response_area(f"Error updating trailing stop: {str(e)}\n")
-
 
 
     def remove_tp_level(self):
@@ -2010,11 +1920,7 @@ class TradingApp(QMainWindow):
 
     def update_default_values(self, ticker):
         default_stop_loss = self.default_stop_loss_amounts.get(ticker, 0)
-        default_trail_by = self.default_trail_by_amounts.get(ticker, 0)
-        default_quantity = self.default_quantity.get(ticker, 0)
         self.stop_loss_input.setText(str(default_stop_loss))
-        self.trail_by_input.setText(str(default_trail_by))
-        self.quantity_input.setValue(default_quantity)
         print(f"Updated default stop loss for {ticker} to {default_stop_loss}")  # Add this line for debugging
 
     def get_stop_loss_type(self, gui_type):
@@ -2089,20 +1995,12 @@ class TradingApp(QMainWindow):
                             stop_price = order['entry_price'] - trail_amount
                         else:  # sell
                             stop_price = order['entry_price'] + trail_amount
-                    self.stop_loss_price_label.setText(f"SL @: {stop_price:.2f} (Trailing)")
-                elif stop_type == 'trail_after_1st_tp':
-                    initial_stop_price = stop_loss['initialStopPrice']
-                    trail_amount = stop_loss['trailAmount']
-                    if not self.first_tp_hit:
-                        self.stop_loss_price_label.setText(f"SL @: {initial_stop_price:.2f} (Trail @ TP)")
-                    else:
-                        stop_price = stop_loss.get('stopPrice', initial_stop_price)
-                        self.stop_loss_price_label.setText(f"SL @: {stop_price:.2f} (Trailing)")
+                    self.stop_loss_price_label.setText(f"Stop Loss @: {stop_price:.2f} (Trailing)")
                 else:
                     stop_price = stop_loss['stopPrice']
-                    self.stop_loss_price_label.setText(f"SL @: {stop_price:.2f}")
+                    self.stop_loss_price_label.setText(f"Stop Loss @: {stop_price:.2f}")
                 
-                #self.stop_loss_price_label.setStyleSheet("color: red;")
+                self.stop_loss_price_label.setStyleSheet("color: red;")
             else:
                 if self.stop_loss_calc_combo.currentText() == "ATR":
                     atr = self.atr_values.get(ticker, 0)
@@ -2112,10 +2010,10 @@ class TradingApp(QMainWindow):
                         stop_price = order['entry_price'] - stop_loss_amount
                     else:  # sell
                         stop_price = order['entry_price'] + stop_loss_amount
-                    self.stop_loss_price_label.setText(f"SL @: {stop_price:.2f} (ATR)")
+                    self.stop_loss_price_label.setText(f"Stop Loss @: {stop_price:.2f} (ATR)")
                 else:
-                    self.stop_loss_price_label.setText("SL @: N/A")
-                #self.stop_loss_price_label.setStyleSheet("color: red;")
+                    self.stop_loss_price_label.setText("Stop Loss @: N/A")
+                self.stop_loss_price_label.setStyleSheet("color: red;")
         else:
             if self.stop_loss_calc_combo.currentText() == "ATR":
                 atr = self.atr_values.get(ticker, 0)
@@ -2123,12 +2021,12 @@ class TradingApp(QMainWindow):
                 stop_loss_amount = atr * multiplier
                 current_price = float(self.price_input.text())
                 stop_price = current_price - stop_loss_amount
-                self.stop_loss_price_label.setText(f"SL @: {stop_price:.2f} (ATR)")
-                #self.stop_loss_price_label.setStyleSheet("color: red;")
+                self.stop_loss_price_label.setText(f"Stop Loss @: {stop_price:.2f} (ATR)")
+                self.stop_loss_price_label.setStyleSheet("color: red;")
             else:
                 default_stop_loss = self.default_stop_loss_amounts.get(ticker, 0)
-                #self.stop_loss_input.setText(str(default_stop_loss))
-                self.stop_loss_price_label.setText("SL: N/A")
+                self.stop_loss_input.setText(str(default_stop_loss))
+                self.stop_loss_price_label.setText("Stop Loss @: N/A")
                 self.stop_loss_price_label.setStyleSheet("color: gray;") 
 
     def send_order(self, action):
@@ -2151,40 +2049,25 @@ class TradingApp(QMainWindow):
             "quantity": quantity
         }
         
-        local_stop_loss_info = {}
-        
         if action in ["buy", "sell"]:
             stop_loss_type = self.stop_loss_type_combo.currentText()
             if stop_loss_type == "Trailing":
-                broker_stop_loss = {
+                stop_loss_info = {
                     "type": "trailing_stop",
                     "trailAmount": stop_loss_amount
-                }
-            elif stop_loss_type == "Trail after 1st TP":
-                if action == "buy":
-                    stop_loss_price = current_price - stop_loss_amount
-                else:  # sell
-                    stop_loss_price = current_price + stop_loss_amount
-                broker_stop_loss = {
-                    "type": "stop",
-                    "stopPrice": stop_loss_price
-                }
-                local_stop_loss_info = {
-                    "type": "trail_after_1st_tp",
-                    "initialStopPrice": stop_loss_price,
-                    "trailAmount": float(self.trail_by_input.text())
                 }
             else:
                 if action == "buy":
                     stop_loss_price = current_price - stop_loss_amount
                 else:  # sell
                     stop_loss_price = current_price + stop_loss_amount
-                broker_stop_loss = {
+                
+                stop_loss_info = {
                     "type": self.get_stop_loss_type(stop_loss_type),
                     "stopPrice": stop_loss_price
                 }
             
-            order["stopLoss"] = broker_stop_loss
+            order["stopLoss"] = stop_loss_info
         
         response_text = self.send_order_to_server(order)
         
@@ -2195,7 +2078,6 @@ class TradingApp(QMainWindow):
                     self.save_active_orders()
                     response_text += f"Removed order for {ticker} from active orders.\n"
             else:  # buy or sell
-                stop_loss_info = {**broker_stop_loss, **local_stop_loss_info}
                 if ticker in self.active_orders:
                     # Updating existing order
                     existing_order = self.active_orders[ticker]
@@ -2235,13 +2117,11 @@ class TradingApp(QMainWindow):
         if "stopLoss" in order:
             sl_info = order["stopLoss"]
             if sl_info["type"] == "trailing_stop":
-                response_text += f"Stop Loss: Trailing @ {sl_info['trailAmount']:.2f}\n"
-            elif stop_loss_type == "Trail after 1st TP":
-                response_text += f"Stop Loss: Trail after 1st TP, Initial @ {broker_stop_loss['stopPrice']:.2f}, Trail Amount: {local_stop_loss_info['trailAmount']:.2f}\n"
+                response_text += f"Stop Loss: Trailing {sl_info['trailAmount']:.2f}\n"
             else:
                 response_text += f"Stop Loss: {sl_info['type'].capitalize()} @ {sl_info['stopPrice']:.2f}\n"
         
-        self.update_response_area(response_text) 
+        self.update_response_area(response_text)
 
     def send_order_to_server(self, order):
         try:
